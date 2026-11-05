@@ -1,12 +1,19 @@
 <!DOCTYPE html>
 <html lang="zh-TW">
 <head>
-  <!-- LINE In-App Browser Auto External Browser Redirect -->
+  <!-- LINE In-App Browser Auto External Browser Redirect (Dual Android Intent + openExternalBrowser=1) -->
   <script>
     (function () {
       var ua = navigator.userAgent || navigator.vendor || window.opera || '';
       var isLine = /Line\//i.test(ua);
       if (isLine) {
+        // If Android inside LINE, fire Chrome Intent to immediately break out of LINE WebView
+        if (/Android/i.test(ua) && !window.location.search.includes('no_intent=1')) {
+          var cleanUrl = window.location.href.replace(/^https?:\/\//, '');
+          window.location.href = "intent://" + cleanUrl + "#Intent;scheme=https;package=com.android.chrome;end";
+          return;
+        }
+        // General / iOS fallback: append openExternalBrowser=1
         if (!window.location.search.includes('openExternalBrowser=1')) {
           var sep = window.location.href.indexOf('?') > -1 ? '&' : '?';
           window.location.replace(window.location.href + sep + 'openExternalBrowser=1');
@@ -303,6 +310,13 @@
         </button>
 
         <!-- JSON Config Save/Load Dropdown Button -->
+        <button id="btn-copy-line-link" type="button" class="px-2.5 py-1.5 text-xs sm:text-sm font-semibold text-emerald-700 bg-emerald-100 hover:bg-emerald-200 rounded-lg transition flex items-center gap-1 shadow-2xs" title="複製附帶 LINE 強制外部瀏覽器指令的分享網址">
+          <svg class="w-4 h-4 text-emerald-600" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path>
+          </svg>
+          <span>複製LINE分享連結</span>
+        </button>
+
         <button id="btn-open-config" type="button" class="p-1.5 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition" title="存取課表設定檔 (JSON)">
           <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4"></path>
@@ -2057,6 +2071,38 @@
           if (lineBar) lineBar.classList.add('hidden');
         });
       }
+      // Copy LINE external browser URL helper
+      document.getElementById('btn-copy-line-link').addEventListener('click', function() {
+        var base = window.location.href.split('?')[0].split('#')[0];
+        if (!base.startsWith('http')) {
+          base = 'https://63cepaper-dev.github.io/ymps-class-schedule/';
+        }
+        var lineUrl = base + (base.endsWith('/') ? '' : '/') + '?openExternalBrowser=1';
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(lineUrl).then(function() {
+            showToast('已複製 LINE 專用分享網址（含強制外部開啟指令）！');
+          }).catch(function() {
+            fallbackCopy(lineUrl);
+          });
+        } else {
+          fallbackCopy(lineUrl);
+        }
+      });
+
+      function fallbackCopy(text) {
+        var tempInput = document.createElement('input');
+        tempInput.value = text;
+        document.body.appendChild(tempInput);
+        tempInput.select();
+        try {
+          document.execCommand('copy');
+          showToast('已複製 LINE 專用分享網址（含強制外部開啟指令）！');
+        } catch (e) {
+          showToast('請複製：' + text);
+        }
+        document.body.removeChild(tempInput);
+      }
+
       loadState();
       renderMeta();
       renderSubjectBar();
