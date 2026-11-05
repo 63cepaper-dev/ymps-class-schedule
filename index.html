@@ -1,0 +1,2033 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>雙語功課表製作小幫手｜Bilingual Timetable Maker</title>
+  <script src="https://cdn.tailwindcss.com/3.4.17"></script>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+TC:wght@400;500;700&family=Noto+Serif+TC:wght@600;700;900&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --font-sans: 'Inter', 'Noto Sans TC', sans-serif;
+      --font-serif: 'DFKai-SB', 'BiauKai', '標楷體', 'Noto Serif TC', 'Times New Roman', serif;
+    }
+    body {
+      font-family: var(--font-sans);
+      background-color: #f4f6f9;
+      color: #1e293b;
+      overscroll-behavior-y: contain;
+    }
+    .timetable-font {
+      font-family: var(--font-serif);
+    }
+    /* Custom scrollbar for single-row subject bar */
+    .subject-scroll::-webkit-scrollbar {
+      height: 8px;
+    }
+    .subject-scroll::-webkit-scrollbar-track {
+      background: #f1f5f9;
+      border-radius: 9999px;
+    }
+    .subject-scroll::-webkit-scrollbar-thumb {
+      background: #cbd5e1;
+      border-radius: 9999px;
+    }
+    .subject-scroll::-webkit-scrollbar-thumb:hover {
+      background: #94a3b8;
+    }
+    /* Timetable exact border styling matching the PDF */
+    .tt-outer-table {
+      border: 3px solid #000000;
+      border-collapse: collapse;
+      width: 100%;
+      background-color: #ffffff;
+      color: #000000;
+    }
+    .tt-outer-table th,
+    .tt-outer-table td {
+      border: 1px solid #000000;
+      padding: 0;
+      vertical-align: middle;
+      text-align: center;
+    }
+    .tt-thick-top {
+      border-top: 2.5px solid #000000 !important;
+    }
+    .tt-thick-bottom {
+      border-bottom: 2.5px solid #000000 !important;
+    }
+    /* Diagonal split cell for Week / Time (SVG line avoids html2canvas black gradient bug) */
+    .diagonal-cell {
+      position: relative;
+      background-color: #ffffff;
+    }
+    /* Dropzone interactive states */
+    .drop-cell {
+      transition: background-color 0.15s ease, box-shadow 0.15s ease;
+      position: relative;
+      min-height: 68px;
+      height: 72px;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+    .drop-cell.drag-over {
+      background-color: #dbeafe !important;
+      box-shadow: inset 0 0 0 2.5px #2563eb !important;
+    }
+    .drop-cell.selected-target {
+      background-color: #fef3c7 !important;
+      box-shadow: inset 0 0 0 2px #d97706 !important;
+    }
+    .subject-chip {
+      touch-action: none;
+      user-select: none;
+      -webkit-user-select: none;
+      cursor: grab;
+      transition: transform 0.12s ease, box-shadow 0.12s ease, border-color 0.12s ease;
+    }
+    .subject-chip:active {
+      cursor: grabbing;
+      transform: scale(0.97);
+    }
+    .subject-chip.active-stamp {
+      border-color: #2563eb !important;
+      background-color: #eff6ff !important;
+      box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.25);
+    }
+    /* Floating ghost during touch/pointer drag */
+    #drag-ghost {
+      position: fixed;
+      pointer-events: none;
+      z-index: 9999;
+      transform: translate(-50%, -65%) scale(1.06);
+      box-shadow: 0 14px 28px -6px rgba(15, 23, 42, 0.32), 0 4px 10px -2px rgba(15, 23, 42, 0.18);
+      display: none;
+    }
+    /* Editable inline fields on paper */
+    .editable-field {
+      border-bottom: 1.5px dashed transparent;
+      transition: border-color 0.15s ease, background-color 0.15s ease;
+      border-radius: 4px;
+      padding: 1px 4px;
+    }
+    .editable-field:hover,
+    .editable-field:focus {
+      border-bottom-color: #3b82f6;
+      background-color: #eff6ff;
+      outline: none;
+    }
+    /* Cell delete button */
+    .cell-clear-btn {
+      opacity: 0;
+      transition: opacity 0.15s ease;
+    }
+    .drop-cell:hover .cell-clear-btn,
+    .drop-cell.has-subject .cell-clear-btn-touch {
+      opacity: 1;
+    }
+    /* Exporting / Print clean overrides */
+    .exporting {
+      width: 820px !important;
+      min-width: 820px !important;
+      max-width: 820px !important;
+      padding: 32px 40px !important;
+      box-sizing: border-box !important;
+    }
+    .exporting .no-export,
+    .exporting .cell-clear-btn {
+      display: none !important;
+    }
+    .exporting .editable-field {
+      border-bottom-color: transparent !important;
+      background-color: transparent !important;
+    }
+    .exporting .drop-cell {
+      background-color: #ffffff !important;
+      box-shadow: none !important;
+      height: 76px !important;
+      min-height: 76px !important;
+      padding: 4px 2px !important;
+    }
+    .exporting tr[data-period-row] td {
+      padding-top: 6px !important;
+      padding-bottom: 6px !important;
+      line-height: 1.25 !important;
+    }
+    .exporting .single-line-row td {
+      padding-top: 8px !important;
+      padding-bottom: 10px !important;
+      line-height: 1.35 !important;
+      vertical-align: middle !important;
+    }
+    /* Full-Screen Clean View Mode for 1-Screen Mobile Screenshot & Long-Press Save */
+    body.clean-view-mode {
+      background-color: #ffffff !important;
+    }
+    body.clean-view-mode header.no-print {
+      display: none !important;
+    }
+    body.clean-view-mode .cell-clear-btn,
+    body.clean-view-mode .no-export {
+      display: none !important;
+    }
+    body.clean-view-mode #clean-mode-bar {
+      display: flex !important;
+    }
+    @media print {
+      @page {
+        size: A4 portrait;
+        margin: 8mm;
+      }
+      body {
+        background: #ffffff !important;
+        margin: 0 !important;
+        padding: 0 !important;
+      }
+      .no-print {
+        display: none !important;
+      }
+      #timetable-stage-wrapper {
+        padding: 0 !important;
+        margin: 0 !important;
+        box-shadow: none !important;
+        border: none !important;
+        width: 100% !important;
+        max-width: none !important;
+      }
+      #timetable-paper {
+        box-shadow: none !important;
+        border: none !important;
+        padding: 4mm 6mm !important;
+        width: 100% !important;
+        max-width: none !important;
+      }
+      .cell-clear-btn {
+        display: none !important;
+      }
+      .editable-field {
+        border: none !important;
+        background: transparent !important;
+      }
+    }
+  </style>
+</head>
+<body class="min-h-screen flex flex-col">
+
+  <!-- Clean Screenshot Mode Floating Control Bar (Visible only in Clean Mode) -->
+  <div id="clean-mode-bar" class="no-print hidden sticky top-0 z-50 bg-slate-900/90 text-white px-3 py-2 items-center justify-between gap-2 shadow-md">
+    <div class="text-xs sm:text-sm font-medium">
+      📸 <strong>手機截圖／長按儲存模式</strong>：下方已是高畫質完整課表，可直接<strong>長按課表存圖</strong>或用<strong>手機截圖</strong>！
+    </div>
+    <button id="btn-exit-clean-mode" type="button" class="shrink-0 px-3 py-1 bg-white text-slate-900 font-bold text-xs rounded-lg shadow-xs hover:bg-slate-100">
+      返回編輯課表
+    </button>
+  </div>
+
+  <!-- Top App Header & Action Toolbar (Hidden when printing) -->
+  <header class="no-print bg-white border-b border-slate-200 sticky top-0 z-40 shadow-sm">
+    <div class="max-w-6xl mx-auto px-3 sm:px-6 py-2.5 flex flex-wrap items-center justify-between gap-2">
+      <!-- Brand Title -->
+      <div class="flex items-center gap-2.5">
+        <div class="w-9 h-9 rounded-xl bg-indigo-600 text-white flex items-center justify-center font-bold shadow-sm">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
+          </svg>
+        </div>
+        <div>
+          <h1 class="text-base sm:text-lg font-bold text-slate-800 leading-tight">雙語功課表製作小幫手</h1>
+          <p class="text-xs text-slate-500 hidden sm:block">觸控拖曳科目至空白課表，原科目列自動保留不消失</p>
+        </div>
+      </div>
+
+      <!-- Action Buttons -->
+      <div class="flex flex-wrap items-center gap-1.5 sm:gap-2">
+        <button id="btn-load-sample" type="button" class="px-2.5 py-1.5 text-xs sm:text-sm font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition flex items-center gap-1" title="載入四年七班範例課表">
+          <svg class="w-4 h-4 text-slate-600" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+          </svg>
+          <span>載入4-7範例</span>
+        </button>
+
+        <button id="btn-clear-grid" type="button" class="px-2.5 py-1.5 text-xs sm:text-sm font-medium text-rose-700 bg-rose-50 hover:bg-rose-100 rounded-lg transition flex items-center gap-1" title="清空所有課表空格">
+          <svg class="w-4 h-4 text-rose-600" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+          </svg>
+          <span>清空空格</span>
+        </button>
+
+        <div class="h-5 w-px bg-slate-200 mx-0.5 hidden sm:block"></div>
+
+        <button id="btn-export-png" type="button" class="px-2.5 py-1.5 text-xs sm:text-sm font-medium text-emerald-700 bg-emerald-50 hover:bg-emerald-100 rounded-lg transition flex items-center gap-1">
+          <svg class="w-4 h-4 text-emerald-600" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
+          </svg>
+          <span>下載圖片</span>
+        </button>
+
+        <button id="btn-export-pdf" type="button" class="px-2.5 py-1.5 text-xs sm:text-sm font-medium text-indigo-700 bg-indigo-50 hover:bg-indigo-100 rounded-lg transition flex items-center gap-1">
+          <svg class="w-4 h-4 text-indigo-600" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+          </svg>
+          <span>匯出 PDF</span>
+        </button>
+
+        <button id="btn-print" type="button" class="px-3 py-1.5 text-xs sm:text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow-sm transition flex items-center gap-1">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"></path>
+          </svg>
+          <span>A4 列印</span>
+        </button>
+
+        <!-- JSON Config Save/Load Dropdown Button -->
+        <button id="btn-open-config" type="button" class="p-1.5 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition" title="存取課表設定檔 (JSON)">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4"></path>
+          </svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- Sticky Single-Row Subject Dock (所有科目都在同一行，拖移後原科目不會消失) -->
+    <div class="bg-slate-50/95 border-t border-slate-200 px-3 sm:px-6 py-2.5">
+      <div class="max-w-6xl mx-auto flex flex-col gap-2">
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <div class="flex items-center gap-2">
+            <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-indigo-100 text-indigo-800">
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M7 11.5V14m0-2.5v-6a1.5 1.5 0 113 0m-3 6a1.5 1.5 0 00-3 0v2a7.5 7.5 0 0015 0v-5a1.5 1.5 0 00-3 0m-6-3V11m0-5.5v-1a1.5 1.5 0 013 0v1m0 0V11m0-5.5a1.5 1.5 0 013 0v3m0 0V11"></path>
+              </svg>
+              科目列（單行）
+            </span>
+            <span class="text-xs text-slate-600">
+              直接<strong>按住科目拖曳</strong>至下方空格，或<strong>點選科目再點空格</strong>填入（科目無限複製，不會消失）
+            </span>
+          </div>
+          <div class="flex items-center gap-2">
+            <button id="btn-toggle-info" type="button" class="text-xs font-medium text-slate-700 bg-white border border-slate-300 hover:bg-slate-100 px-2.5 py-1 rounded-md shadow-sm transition flex items-center gap-1">
+              <svg class="w-3.5 h-3.5 text-indigo-600" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path>
+              </svg>
+              <span>修改學校/班級/導師</span>
+            </button>
+            <button id="btn-open-add-subject" type="button" class="text-xs font-semibold text-indigo-700 bg-indigo-50 border border-indigo-200 hover:bg-indigo-100 px-2.5 py-1 rounded-md transition flex items-center gap-1">
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"></path>
+              </svg>
+              <span>新增自訂科目</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Single-Row Horizontal Scroll Container for All Subjects -->
+        <div class="relative flex items-center gap-1">
+          <button id="btn-scroll-left" type="button" aria-label="向左捲動科目" class="shrink-0 w-7 h-12 rounded-lg bg-white border border-slate-200 shadow-sm hover:bg-slate-100 flex items-center justify-center text-slate-600">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"></path></svg>
+          </button>
+
+          <div id="subject-bar" class="subject-scroll flex flex-nowrap items-center gap-2 overflow-x-auto py-1.5 px-1 scroll-smooth w-full">
+            <!-- Dynamically populated single-row subject cards -->
+          </div>
+
+          <button id="btn-scroll-right" type="button" aria-label="向右捲動科目" class="shrink-0 w-7 h-12 rounded-lg bg-white border border-slate-200 shadow-sm hover:bg-slate-100 flex items-center justify-center text-slate-600">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"></path></svg>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Collapsible Basic Info Drawer -->
+    <div id="info-drawer" class="hidden bg-indigo-50/70 border-t border-indigo-100 px-3 sm:px-6 py-3">
+      <div class="max-w-6xl mx-auto">
+        <div class="flex items-center justify-between mb-2">
+          <span class="text-xs font-bold text-indigo-900">基本資訊設定（也可直接點擊下方課表標題文字修改；時間欄位已鎖定）</span>
+          <button id="btn-close-info" type="button" class="text-xs text-indigo-700 hover:underline font-medium">收起面板</button>
+        </div>
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
+          <div>
+            <label for="input-title-zh" class="block text-xs font-medium text-slate-700 mb-0.5">中文標題（學校與班級）</label>
+            <input id="input-title-zh" type="text" class="w-full px-2.5 py-1.5 text-sm bg-white border border-slate-300 rounded-md focus:ring-2 focus:ring-indigo-500 focus:outline-none" value="高雄市陽明國小 四年七班 日課表" />
+          </div>
+          <div>
+            <label for="input-title-en" class="block text-xs font-medium text-slate-700 mb-0.5">英文標題（School &amp; Class）</label>
+            <input id="input-title-en" type="text" class="w-full px-2.5 py-1.5 text-sm bg-white border border-slate-300 rounded-md focus:ring-2 focus:ring-indigo-500 focus:outline-none" value="Kaohsiung Yang Ming Primary School   Grade 4 class 7   school timetable" />
+          </div>
+          <div>
+            <label for="input-teacher-zh" class="block text-xs font-medium text-slate-700 mb-0.5">導師中文姓名</label>
+            <input id="input-teacher-zh" type="text" class="w-full px-2.5 py-1.5 text-sm bg-white border border-slate-300 rounded-md focus:ring-2 focus:ring-indigo-500 focus:outline-none" value="導        師：蔡漢璁老師" />
+          </div>
+          <div>
+            <label for="input-teacher-en" class="block text-xs font-medium text-slate-700 mb-0.5">導師英文姓名</label>
+            <input id="input-teacher-en" type="text" class="w-full px-2.5 py-1.5 text-sm bg-white border border-slate-300 rounded-md focus:ring-2 focus:ring-indigo-500 focus:outline-none" value="Room Teacher：TSAI, HAN-TSUNG" />
+          </div>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Workspace Container -->
+  <main class="flex-1 py-4 sm:py-6 px-2 sm:px-6 overflow-x-auto">
+    <div id="timetable-stage-wrapper" class="max-w-4xl mx-auto">
+      <!-- Printable / Exportable A4 Paper Container -->
+      <div id="timetable-paper" class="timetable-font bg-white shadow-lg rounded-sm border border-slate-200 px-4 py-6 sm:px-10 sm:py-8 mx-auto" style="max-width: 820px;">
+        
+        <!-- Header Titles (Editable) -->
+        <div class="text-center mb-2">
+          <div
+            id="display-title-zh"
+            contenteditable="true"
+            spellcheck="false"
+            class="editable-field text-xl sm:text-3xl font-bold tracking-wider text-black leading-snug inline-block min-w-[260px]"
+            title="點擊直接修改中文標題"
+          >高雄市陽明國小 四年七班 日課表</div>
+          <div class="mt-0.5">
+            <div
+              id="display-title-en"
+              contenteditable="true"
+              spellcheck="false"
+              class="editable-field text-xs sm:text-base font-bold tracking-tight text-black inline-block min-w-[280px]"
+              style="font-family: 'Times New Roman', serif;"
+              title="點擊直接修改英文標題"
+            >Kaohsiung Yang Ming Primary School &nbsp; Grade 4 class 7 &nbsp; school timetable</div>
+          </div>
+        </div>
+
+        <!-- Original Decorative Potted Plants Banner extracted from PDF -->
+        <div class="my-2 flex justify-center">
+          <img
+            src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAfQAAAAoCAYAAAAIXQhqAAAJvElEQVR4nO2dvW4bORDHZ4N7hgOSdHcvECDVdb5CpSsFduHSeQU/hV8hLhUggV25dBG/gAG/QMpz+rzAXiFxNTs7MxzuhyRr/z9A0Io7JIez5AxJrbREAAAAAHj1VLuu8PaM6nT86fvu6wcAAACOkZ0F1BTIl19eiIjo7vM7IkJQBwAAAF4Nt2dU179fOq/bM6r5ih0AAAAA/XgzZeEpYKdVucRKBwAAAEAZkwV0ucUekQUAAABAP0YP6HwbXQ3mD1fr1+YYq3QAAABgOKPdkBZakT9cES2utwE9sbimu8/vcIMcAADMmPr+viYiqk5Pq3ScqE5PER8y/DFmYaHVNg/mi+sxqwcAAHAE1Pf3NX38uE14eiIZ4IkQ5CWjBnQVuSrnxyy4L88v6JZWNVbpAAAwY3ggJyJ6etLTQIfRAvqn71Td0rvutjtfhadgbq3Mv63o9owQ1AEAYK5oAVyeB7vh9ozq+u5i/fr9sn3nL56mnMdd7wCAY6O+u4BfC1C/vNT1yyY2pOP0ur9fv9jxvvU9epo/ktGCegr2/MUCOQI6AODYaPnCTWBHgLeR9vIC/L51PSQm2dq+PaN6eX7R3Vrn2+3sOP0NLAfb7gCAY+Dk+aQmIvrx8/06YfPVY7VcwccpWPaif0Q82Wy948a4LZMZohXUjTvbeSD/9J2qtDJHMAcAHBNNkPrrK9HDFf3793/NuccPj/B3As9eP/78imBuMGlAJ9rcICdW48svL817SkMQBwAcMylIJRDIfWCvciY1kFyl331bNcGcg2AOAHjtyABE1A1CSQbBCfaagukDunhcKscL5Pj5GgCHQcTxgq2dLt9e0s2vm9Y5y15zti3sNT6TG4JvvaetdQRrAF4PcLwxeJsv314SEbXsxdvvyR67nRKw1/hM/k9xKYDLG+DSMQ/uCPQAHC43v246zvTk+aSOOt45kdqsTYL4BInLzhnYaxym/+tX8rfW+TlNDkEegMMBjtcmTWz4pMaygWa/uQF7jc/OAyUCNACvE20bnajtmD3Hi63RNTk7gjawV5yDNAiCPgCvDzheAGYI/2vXdIy/ewUAHCsnzye1NeEBXWCvfuzkO3SJ9r05VuSHz1x/E4o/uLCZa58A4BB5s28FImD1fpikWfRcZtLpZq+5tBeMD/pOGbBXGXsJ6FaA1rbiibB6PxQePzxWjx8eKxnE57I64z/bAm3geAHYP3vfcifa3gSX+wnboYBtxjVzaX+rnc/riWb6/fUc/0AFgF1T313UeDpdns4K3XpGr/fsXu/5vjyNH+dW4JZsybOEI7JDnkmcK/fYn3e8z/btq+60S0HU/ROV17p6P/Z+Wor0G9I+pfaaq31z7ZY+0vOZMpgPvSbHShPQtcDbPFzeOKe9Szl+IfhxCuIycGv1Lc8vXP2krk364jorK2WkrNY2i44tWNlF+ZTzJfp4stIOQ3RL1zPSP6K6e23R6i7J03dSGinj5tdN5/fXOT12OSl1r8emn+Zekbr69OFcH5mqD1s6VMtVZdVp+RtZD0+vlquK79rk9IguBix/5bXNK8cqS6svpxvR1o5u+YaPbJ6FHtSb+4Mxx1eJv4rauXQsl+jWccid55fn0q3z7DMfIHffVrQ8v9imLa7Xj1I9v2gVl+RaT2rjMql8TS9Ll1wbStor0DqUPF/frbeN+HukTE+Oy1hBrpNfaZumn1V3ejaxtbXMHVlkQFg2kTaVusl2y7q0+iPXIbK1J5/XnB4PbNnV08lL966VlIn2raxcsO+n/Kk/aE441AeMNvLPY/dhXkYvHR2drevb6TNOWbI895oF7JcI2SXTFikny9R0jfoCDu9XuT4btYunS2Ss5vyt1t6cf/Ls5fkwKUfEt9wNh9SgBU2ZT6bxRi6uiRbXTVBulHy46gRzItqmbertyFj6aOfSZ6ttQt9Oe6Sc8q7OvkR+dZBpdW/S3Jm6I+PN3Ju2CUIzw02dP36+J7ni0NrfHFt2ZHLW4OiUJ2ytDhZmG1mv1NPKJ9skX00eJ5hznTs24XbQVimyTE92IxPpg53zGgUTWRPrGigy2lieug9b9YaRAZnrysvR7CCvqWFvbSyV2MLK07Kp47PN8WukaeNTa0sf3PaTGGfW2PFkZdnGzoEWsDt+gedlu19Wfa130V86/Ynrqdg6vFpslOm5Sm+lEfXbBegjH9EpVxY/V2qDqJ5RSnYkImUUzmL5eaLhA9XVPdiuPrP/Vnk9ro+3Ku3NkH4S7b9DUcZvsS0G2L1ThjxmDO4X0fTcOU8uky+0ixIc73xX1PUhY/SXMfvcmGWP0fe8MonUyV6nTqnHkBjDrq+9TTxWg73GjlW2l9YnAOfkSoL2FB2or44F9HKGY07WrPKt1U1fh9pHz6knaH3LGKuv75o+ATRA8UJlyIIicmzldeg9KYnWs88+0cdnRgPgWON4yHUaIxYVLmreEMW3cVqFGp+brdPFdbtyVl6S8b6rrJarqlWWVp+mo+Lw3e9EtdmUsh3TkksdistZ9uLt53k8HPua6VKHgYM07Aj5+8NV3g4yb/Q4lSHritjT06P0fFQmiuXQvM+5sqx+rPX1XN19KWmDNTam6sOaXTTHaSHzSV25z7H8C8/r+IXBO2DaGIn4LU2+RCaSp9RXGPFktDZEdFEwv0qVeXNj3YpnORmmxxuukBX4OucNRVv5Nw43BeZquaq0oN6BKc+/Z2/lE/WpZZU6A7ZtYU1CWvWx9pnt0gKuF9g03SOThaGz7D4DNtWvOUIvWAx1htoKvU/7Aw7InQgGbBaalGoMmZSmz5bzkzJMV7VsoWerTYZMp04ZwLQ6xtiliMpIuzjOV/UxTjDp2Edzxuz6cF9S3I4ouf6hlZ8LItbkSy7kjDzcRtZxKCAqtHxyyeJP6Kn2dVnPhs533TL2KeU3OmjXs9D+zXfolrI55N15PM2SjaTLNK2eiF5evbl2aOeI9Luuo+3Tjotm38ogid5JqaVr50J3fxY439ydqZY+SSfrrlPtu8DoXbAl9wZk2+05rgf77uno3axWniw5Z/3QviOen7Z0icqV4t3pK+seuw97Y1PT1fMHmlzuuKWX0pe9NpTYRKZrbWkonFxpMcAsR7QxUn7uuno6RXQO9xvD/2p68jTTPkG9S/yaVS4YiVJnZ8m37pI0ZOXdjjm5PjpY9Wj6efk92RKbldQZPa/Zy3tZeUr08Nrl6ZarTzsu6WO5ektkI33YSp+qD49JtE/n+ky0T+XqH2JrTbbk+vFz1riPXIOhfqK0Pi5Xav+Ssr16xqoLgEEcSic8FD2OnbnZecrJwK7pE+hKyxmymDkGGwMAAAAA9OZ/BNWqw4NlLlMAAAAASUVORK5CYII="
+            alt="課表裝飾插圖"
+            class="w-full max-w-[680px] h-auto object-contain select-none pointer-events-none"
+          />
+        </div>
+
+        <!-- Timetable Main Box -->
+        <table class="tt-outer-table">
+          <colgroup>
+            <col style="width: 11.5%;" />
+            <col style="width: 8.5%;" />
+            <col style="width: 16%;" />
+            <col style="width: 16%;" />
+            <col style="width: 16%;" />
+            <col style="width: 16%;" />
+            <col style="width: 16%;" />
+          </colgroup>
+          <tbody>
+            <!-- Row 1: Room Teacher Top Box -->
+            <tr class="tt-thick-bottom">
+              <td colspan="7" class="py-2 px-4 sm:px-10">
+                <div class="flex flex-col items-end justify-center text-right">
+                  <div class="w-full sm:w-[48%] text-left">
+                    <div
+                      id="display-teacher-zh"
+                      contenteditable="true"
+                      spellcheck="false"
+                      class="editable-field text-base sm:text-xl font-bold text-black tracking-widest block"
+                      title="點擊修改導師中文姓名"
+                    >導 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; 師：蔡漢璁老師</div>
+                    <div
+                      id="display-teacher-en"
+                      contenteditable="true"
+                      spellcheck="false"
+                      class="editable-field text-sm sm:text-lg font-bold text-black tracking-normal block mt-0.5"
+                      title="點擊修改導師英文姓名"
+                    >Room Teacher：TSAI, HAN-TSUNG</div>
+                  </div>
+                </div>
+              </td>
+            </tr>
+
+            <!-- Row 2: Week / Time Headers (Locked) -->
+            <tr class="tt-thick-bottom">
+              <td colspan="2" class="diagonal-cell h-16 sm:h-20 p-0 select-none relative overflow-hidden">
+                <svg class=" zig-line absolute inset-0 w-full h-full pointer-events-none" viewBox="0 0 100 100" preserveAspectRatio="none">
+                  <line x1="0" y1="0" x2="100" y2="100" stroke="#000000" stroke-width="1.5" />
+                </svg>
+                <div class="relative z-10 w-full h-full">
+                  <div class="absolute top-1.5 right-1.5 text-xs sm:text-sm font-bold leading-none whitespace-nowrap">星期（week）</div>
+                  <div class="absolute bottom-1.5 left-1.5 text-xs sm:text-sm font-bold leading-none whitespace-nowrap">時間（time）</div>
+                </div>
+              </td>
+              <td class="py-1.5 select-none">
+                <div class="text-base sm:text-xl font-bold leading-tight">星期一</div>
+                <div class="text-xs sm:text-sm font-bold mt-0.5" style="font-family: 'Times New Roman', serif;">Monday</div>
+              </td>
+              <td class="py-1.5 select-none">
+                <div class="text-base sm:text-xl font-bold leading-tight">星期二</div>
+                <div class="text-xs sm:text-sm font-bold mt-0.5" style="font-family: 'Times New Roman', serif;">Tuesday</div>
+              </td>
+              <td class="py-1.5 select-none">
+                <div class="text-base sm:text-xl font-bold leading-tight">星期三</div>
+                <div class="text-xs sm:text-sm font-bold mt-0.5" style="font-family: 'Times New Roman', serif;">Wednesday</div>
+              </td>
+              <td class="py-1.5 select-none">
+                <div class="text-base sm:text-xl font-bold leading-tight">星期四</div>
+                <div class="text-xs sm:text-sm font-bold mt-0.5" style="font-family: 'Times New Roman', serif;">Thursday</div>
+              </td>
+              <td class="py-1.5 select-none">
+                <div class="text-base sm:text-xl font-bold leading-tight">星期五</div>
+                <div class="text-xs sm:text-sm font-bold mt-0.5" style="font-family: 'Times New Roman', serif;">Friday</div>
+              </td>
+            </tr>
+
+            <!-- Row 3: Room Teacher Time 08:00~08:20 (Locked) -->
+            <tr class="tt-thick-bottom single-line-row select-none">
+              <td colspan="2" class="py-2 px-1 text-xs sm:text-base font-bold tracking-tight leading-normal" style="font-family: 'Times New Roman', serif;">
+                08：00~08：20
+              </td>
+              <td colspan="5" class="py-2 px-2 text-sm sm:text-lg font-bold leading-normal">
+                導師時間（room teacher time）
+              </td>
+            </tr>
+
+            <!-- Periods 1 to 4 generated / structured -->
+            <tr data-period-row="1">
+              <td class="py-1.5 px-1 select-none text-xs sm:text-sm font-bold leading-tight" style="font-family: 'Times New Roman', serif;">
+                <div>08：30</div>
+                <div class="my-0.5">│</div>
+                <div>09：10</div>
+              </td>
+              <td class="py-1.5 px-1 select-none leading-tight">
+                <div class="text-lg sm:text-2xl font-bold" style="font-family: 'Times New Roman', serif;">1</div>
+                <div class="text-[10px] sm:text-xs font-bold" style="font-family: 'Times New Roman', serif;">the first<br/>class</div>
+              </td>
+              <td class="drop-cell" data-day="1" data-period="1"></td>
+              <td class="drop-cell" data-day="2" data-period="1"></td>
+              <td class="drop-cell" data-day="3" data-period="1"></td>
+              <td class="drop-cell" data-day="4" data-period="1"></td>
+              <td class="drop-cell" data-day="5" data-period="1"></td>
+            </tr>
+
+            <tr data-period-row="2">
+              <td class="py-1.5 px-1 select-none text-xs sm:text-sm font-bold leading-tight" style="font-family: 'Times New Roman', serif;">
+                <div>09：20</div>
+                <div class="my-0.5">│</div>
+                <div>10：00</div>
+              </td>
+              <td class="py-1.5 px-1 select-none leading-tight">
+                <div class="text-lg sm:text-2xl font-bold" style="font-family: 'Times New Roman', serif;">2</div>
+                <div class="text-[10px] sm:text-xs font-bold" style="font-family: 'Times New Roman', serif;">the<br/>second<br/>class</div>
+              </td>
+              <td class="drop-cell" data-day="1" data-period="2"></td>
+              <td class="drop-cell" data-day="2" data-period="2"></td>
+              <td class="drop-cell" data-day="3" data-period="2"></td>
+              <td class="drop-cell" data-day="4" data-period="2"></td>
+              <td class="drop-cell" data-day="5" data-period="2"></td>
+            </tr>
+
+            <tr data-period-row="3">
+              <td class="py-1.5 px-1 select-none text-xs sm:text-sm font-bold leading-tight" style="font-family: 'Times New Roman', serif;">
+                <div>10：30</div>
+                <div class="my-0.5">│</div>
+                <div>11：10</div>
+              </td>
+              <td class="py-1.5 px-1 select-none leading-tight">
+                <div class="text-lg sm:text-2xl font-bold" style="font-family: 'Times New Roman', serif;">3</div>
+                <div class="text-[10px] sm:text-xs font-bold" style="font-family: 'Times New Roman', serif;">the third<br/>class</div>
+              </td>
+              <td class="drop-cell" data-day="1" data-period="3"></td>
+              <td class="drop-cell" data-day="2" data-period="3"></td>
+              <td class="drop-cell" data-day="3" data-period="3"></td>
+              <td class="drop-cell" data-day="4" data-period="3"></td>
+              <td class="drop-cell" data-day="5" data-period="3"></td>
+            </tr>
+
+            <tr data-period-row="4" class="tt-thick-bottom">
+              <td class="py-1.5 px-1 select-none text-xs sm:text-sm font-bold leading-tight" style="font-family: 'Times New Roman', serif;">
+                <div>11：20</div>
+                <div class="my-0.5">│</div>
+                <div>12：00</div>
+              </td>
+              <td class="py-1.5 px-1 select-none leading-tight">
+                <div class="text-lg sm:text-2xl font-bold" style="font-family: 'Times New Roman', serif;">4</div>
+                <div class="text-[10px] sm:text-xs font-bold" style="font-family: 'Times New Roman', serif;">the<br/>fourth<br/>class</div>
+              </td>
+              <td class="drop-cell" data-day="1" data-period="4"></td>
+              <td class="drop-cell" data-day="2" data-period="4"></td>
+              <td class="drop-cell" data-day="3" data-period="4"></td>
+              <td class="drop-cell" data-day="4" data-period="4"></td>
+              <td class="drop-cell" data-day="5" data-period="4"></td>
+            </tr>
+
+            <!-- Lunch & Nap Break 12:00~13:20 (Locked) -->
+            <tr class="tt-thick-bottom single-line-row select-none">
+              <td colspan="2" class="py-2 px-1 text-xs sm:text-base font-bold tracking-tight leading-normal" style="font-family: 'Times New Roman', serif;">
+                12：00~13：20
+              </td>
+              <td colspan="5" class="py-2 px-2 text-sm sm:text-lg font-bold leading-normal">
+                午餐（lunchtime）；午休（lunch break）
+              </td>
+            </tr>
+
+            <!-- Periods 5 to 7 -->
+            <tr data-period-row="5">
+              <td class="py-1.5 px-1 select-none text-xs sm:text-sm font-bold leading-tight" style="font-family: 'Times New Roman', serif;">
+                <div>13：30</div>
+                <div class="my-0.5">│</div>
+                <div>14：10</div>
+              </td>
+              <td class="py-1.5 px-1 select-none leading-tight">
+                <div class="text-lg sm:text-2xl font-bold" style="font-family: 'Times New Roman', serif;">5</div>
+                <div class="text-[10px] sm:text-xs font-bold" style="font-family: 'Times New Roman', serif;">the fifth<br/>class</div>
+              </td>
+              <td class="drop-cell" data-day="1" data-period="5"></td>
+              <td class="drop-cell" data-day="2" data-period="5"></td>
+              <td class="drop-cell" data-day="3" data-period="5"></td>
+              <td class="drop-cell" data-day="4" data-period="5"></td>
+              <td class="drop-cell" data-day="5" data-period="5"></td>
+            </tr>
+
+            <tr data-period-row="6">
+              <td class="py-1.5 px-1 select-none text-xs sm:text-sm font-bold leading-tight" style="font-family: 'Times New Roman', serif;">
+                <div>14：20</div>
+                <div class="my-0.5">│</div>
+                <div>15：00</div>
+              </td>
+              <td class="py-1.5 px-1 select-none leading-tight">
+                <div class="text-lg sm:text-2xl font-bold" style="font-family: 'Times New Roman', serif;">6</div>
+                <div class="text-[10px] sm:text-xs font-bold" style="font-family: 'Times New Roman', serif;">the sixth<br/>class</div>
+              </td>
+              <td class="drop-cell" data-day="1" data-period="6"></td>
+              <td class="drop-cell" data-day="2" data-period="6"></td>
+              <td class="drop-cell" data-day="3" data-period="6"></td>
+              <td class="drop-cell" data-day="4" data-period="6"></td>
+              <td class="drop-cell" data-day="5" data-period="6"></td>
+            </tr>
+
+            <tr data-period-row="7" class="tt-thick-bottom">
+              <td class="py-1.5 px-1 select-none text-xs sm:text-sm font-bold leading-tight" style="font-family: 'Times New Roman', serif;">
+                <div>15：20</div>
+                <div class="my-0.5">│</div>
+                <div>16：00</div>
+              </td>
+              <td class="py-1.5 px-1 select-none leading-tight">
+                <div class="text-lg sm:text-2xl font-bold" style="font-family: 'Times New Roman', serif;">7</div>
+                <div class="text-[10px] sm:text-xs font-bold" style="font-family: 'Times New Roman', serif;">the<br/>seventh<br/>class</div>
+              </td>
+              <td class="drop-cell" data-day="1" data-period="7"></td>
+              <td class="drop-cell" data-day="2" data-period="7"></td>
+              <td class="drop-cell" data-day="3" data-period="7"></td>
+              <td class="drop-cell" data-day="4" data-period="7"></td>
+              <td class="drop-cell" data-day="5" data-period="7"></td>
+            </tr>
+
+            <!-- Home Time Row (Locked) -->
+            <tr class="single-line-row select-none">
+              <td colspan="2" class="py-2 px-1 text-xs sm:text-base font-bold leading-normal" style="font-family: 'Times New Roman', serif;">
+                <div>12：40~13：00</div>
+                <div class="mt-0.5">16：00~16：20</div>
+              </td>
+              <td colspan="5" class="py-2 px-2 text-sm sm:text-lg font-bold leading-normal">
+                放學（home time）
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </main>
+
+  <!-- Floating Drag Ghost for Touch / Pointer Dragging -->
+  <div id="drag-ghost" class="timetable-font rounded-xl border-2 border-indigo-600 bg-white px-3.5 py-2 text-center">
+    <div id="ghost-zh" class="text-sm font-bold text-slate-900 leading-tight"></div>
+    <div id="ghost-en" class="text-xs font-medium text-slate-600 leading-tight mt-0.5"></div>
+  </div>
+
+  <!-- Modal: Add Custom Subject -->
+  <div id="modal-add-subject" class="no-print fixed inset-0 z-50 hidden items-center justify-center bg-slate-900/50 backdrop-blur-xs p-4">
+    <div class="bg-white rounded-2xl shadow-xl max-w-md w-full p-5 border border-slate-200">
+      <div class="flex items-center justify-between mb-3">
+        <h2 class="text-base font-bold text-slate-800">新增自訂雙語科目</h2>
+        <button id="btn-close-add-modal" type="button" class="text-slate-400 hover:text-slate-600 p-1">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"></path></svg>
+        </button>
+      </div>
+      <form id="form-add-subject" class="space-y-3">
+        <div>
+          <label for="new-subj-zh" class="block text-xs font-semibold text-slate-700 mb-1">科目中文名稱 *</label>
+          <input id="new-subj-zh" type="text" required placeholder="例如：電腦、社團活動、閱讀" class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none" />
+        </div>
+        <div>
+          <label for="new-subj-en" class="block text-xs font-semibold text-slate-700 mb-1">科目英文名稱（可留空或換行）</label>
+          <input id="new-subj-en" type="text" placeholder="例如：Computer Science / Club Activities" class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none" />
+        </div>
+        <div class="flex items-center justify-end gap-2 pt-2">
+          <button id="btn-cancel-add-modal" type="button" class="px-3.5 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-100 rounded-lg">取消</button>
+          <button type="submit" class="px-4 py-1.5 text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow-xs">加入科目列</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal: Save / Load JSON Config -->
+  <div id="modal-config" class="no-print fixed inset-0 z-50 hidden items-center justify-center bg-slate-900/50 backdrop-blur-xs p-4">
+    <div class="bg-white rounded-2xl shadow-xl max-w-md w-full p-5 border border-slate-200">
+      <div class="flex items-center justify-between mb-3">
+        <h2 class="text-base font-bold text-slate-800">課表設定檔備份與還原</h2>
+        <button id="btn-close-config-modal" type="button" class="text-slate-400 hover:text-slate-600 p-1">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"></path></svg>
+        </button>
+      </div>
+      <p class="text-xs text-slate-600 mb-4">你可以將目前排好的課表與自訂科目匯出成設定檔保存，或匯入先前的設定檔繼續編輯。</p>
+      <div class="flex flex-col gap-2.5">
+        <button id="btn-download-json" type="button" class="w-full py-2.5 px-4 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-sm rounded-xl flex items-center justify-center gap-2 shadow-xs transition">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+          <span>下載目前課表設定檔 (.json)</span>
+        </button>
+
+        <label class="w-full py-2.5 px-4 bg-slate-100 hover:bg-slate-200 text-slate-800 font-semibold text-sm rounded-xl flex items-center justify-center gap-2 cursor-pointer transition">
+          <svg class="w-4 h-4 text-slate-700" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path></svg>
+          <span>讀取課表設定檔 (.json)</span>
+          <input id="input-upload-json" type="file" accept=".json,application/json" class="hidden" />
+        </label>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Sample Timetable Presets (Low / Middle / High grades) -->
+  <div id="modal-sample" class="no-print fixed inset-0 z-50 hidden items-center justify-center bg-slate-900/60 backdrop-blur-xs p-3 sm:p-5">
+    <div class="bg-white rounded-2xl shadow-2xl max-w-md w-full p-5 border border-slate-200">
+      <div class="flex items-center justify-between pb-3 border-b border-slate-100 mb-3">
+        <div>
+          <h3 class="text-base font-bold text-slate-800">選擇課表範例</h3>
+          <p class="text-xs text-slate-500 mt-0.5">點選可快速套用各年級標準雙語日課表</p>
+        </div>
+        <button id="btn-close-sample-modal" type="button" class="text-slate-400 hover:text-slate-700 p-1 rounded-lg">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"></path></svg>
+        </button>
+      </div>
+
+      <div class="space-y-2.5">
+        <!-- Option 1: Grade 1 -->
+        <button id="btn-load-sample-1" type="button" class="w-full p-3 text-left rounded-xl border border-slate-200 hover:border-indigo-500 hover:bg-indigo-50/50 transition group flex items-start gap-3">
+          <div class="w-8 h-8 rounded-lg bg-emerald-100 text-emerald-800 flex items-center justify-center font-bold text-xs shrink-0 mt-0.5">低</div>
+          <div class="flex-1 min-w-0">
+            <div class="text-sm font-bold text-slate-800 group-hover:text-indigo-700">載入1-3範例（低年級）</div>
+            <div class="text-[11px] text-slate-500 mt-0.5 leading-snug">一年三班・孫筠婷老師｜生活、生活-音樂、生活-美勞、本土語等</div>
+          </div>
+        </button>
+
+        <!-- Option 2: Grade 4 -->
+        <button id="btn-load-sample-4" type="button" class="w-full p-3 text-left rounded-xl border border-slate-200 hover:border-indigo-500 hover:bg-indigo-50/50 transition group flex items-start gap-3">
+          <div class="w-8 h-8 rounded-lg bg-blue-100 text-blue-800 flex items-center justify-center font-bold text-xs shrink-0 mt-0.5">中</div>
+          <div class="flex-1 min-w-0">
+            <div class="text-sm font-bold text-slate-800 group-hover:text-indigo-700">載入4-7範例</div>
+          </div>
+        </button>
+
+        <!-- Option 3: Grade 6 -->
+        <button id="btn-load-sample-6" type="button" class="w-full p-3 text-left rounded-xl border border-slate-200 hover:border-indigo-500 hover:bg-indigo-50/50 transition group flex items-start gap-3">
+          <div class="w-8 h-8 rounded-lg bg-purple-100 text-purple-800 flex items-center justify-center font-bold text-xs shrink-0 mt-0.5">高</div>
+          <div class="flex-1 min-w-0">
+            <div class="text-sm font-bold text-slate-800 group-hover:text-indigo-700">載入6-7範例（高年級）</div>
+            <div class="text-[11px] text-slate-500 mt-0.5 leading-snug">六年七班・王亭云老師｜藝猶未盡、渾身解數、視覺藝術、悅閱欲試等</div>
+          </div>
+        </button>
+      </div>
+
+      <div class="flex justify-end pt-3 mt-3 border-t border-slate-100">
+        <button id="btn-cancel-sample-modal" type="button" class="px-3.5 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-100 rounded-lg">取消</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Confirmation Modal for Clearing Grid / Loading Sample -->
+  <div id="modal-confirm" class="no-print fixed inset-0 z-50 hidden items-center justify-center bg-slate-900/50 backdrop-blur-xs p-4">
+    <div class="bg-white rounded-2xl shadow-xl max-w-sm w-full p-5 border border-slate-200">
+      <h3 id="confirm-title" class="text-base font-bold text-slate-800 mb-1.5">確認操作</h3>
+      <p id="confirm-desc" class="text-xs text-slate-600 mb-4">確定要執行此操作嗎？</p>
+      <div class="flex items-center justify-end gap-2">
+        <button id="btn-confirm-cancel" type="button" class="px-3.5 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-100 rounded-lg">取消</button>
+        <button id="btn-confirm-ok" type="button" class="px-4 py-1.5 text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg">確定</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Full-Screen Clean Export View (Image is front and center, never blocked by instructions) -->
+  <div id="modal-export-preview" class="no-print fixed inset-0 z-50 hidden flex-col bg-slate-900/95 overflow-y-auto">
+    <!-- Compact Top Bar -->
+    <div class="sticky top-0 z-20 bg-slate-900 text-white px-3 py-2 flex items-center justify-between gap-2 border-b border-slate-700 shadow-md">
+      <div class="flex items-center gap-2 min-w-0">
+        <span id="export-modal-title" class="text-xs sm:text-sm font-bold text-emerald-400 truncate">課表已產生！</span>
+        <span id="export-modal-subtitle" class="text-[11px] text-slate-300 hidden sm:inline">長按課表圖片即可儲存</span>
+      </div>
+      <div class="flex items-center gap-1.5 shrink-0">
+        <button id="btn-modal-native-share" type="button" class="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-xs rounded-lg transition">
+          <span id="btn-modal-share-text">傳送到 LINE / 儲存至手機</span>
+        </button>
+        <a id="btn-modal-direct-dl" href="#" download="雙語功課表.png" class="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs rounded-lg transition">
+          <span id="btn-modal-dl-text">直接下載檔案</span>
+        </a>
+        <button id="btn-modal-fullscreen-shot" type="button" class="hidden">全螢幕一頁截圖模式</button>
+        <button id="btn-close-export-modal" type="button" class="px-2.5 py-1 bg-slate-700 hover:bg-slate-600 text-white font-bold text-xs rounded-lg transition">
+          ✕ 返回
+        </button>
+      </div>
+    </div>
+
+    <!-- Main Full-Screen Image Area (Fits cleanly on 1 screen without any text blocking it) -->
+    <div class="flex-1 flex flex-col items-center justify-start p-2 sm:p-4 pb-16">
+      <div class="text-xs font-medium text-amber-300 mb-1.5 text-center">
+        👇 直接用手指「長按下方課表圖片」即可選擇「下載圖片」或直接手機截圖 👇
+      </div>
+      <img id="export-preview-img" src="" alt="課表預覽圖" class="max-h-[78vh] w-auto max-w-full object-contain rounded-sm shadow-2xl bg-white" />
+    </div>
+  </div>
+
+  <!-- Toast Notification -->
+  <div id="toast-box" class="no-print fixed bottom-4 right-4 z-50 pointer-events-none opacity-0 translate-y-2 transition-all duration-200">
+    <div class="bg-slate-900 text-white text-xs sm:text-sm font-medium px-4 py-2.5 rounded-xl shadow-lg flex items-center gap-2">
+      <span id="toast-text">已儲存變更</span>
+    </div>
+  </div>
+
+  <script>
+    (function () {
+      // Default subjects extracted from 4-7雙語課表.pdf
+      const DEFAULT_SUBJECTS = [
+        // 核心領域科目（依低年級與高年級課表標準更新雙語名稱：國語、本土語、音樂、視覺藝術、健康）
+        { id: 'lang', zh: '國語', en: 'Mandarin', color: '#eff6ff', border: '#bfdbfe' },
+        { id: 'math', zh: '數學', en: 'Mathematics', color: '#f0fdf4', border: '#bbf7d0' },
+        { id: 'english', zh: '英語', en: 'English', color: '#fdf4ff', border: '#f5d0fe' },
+        { id: 'dialects', zh: '本土語', en: 'Native\nLanguages', color: '#fef2f2', border: '#fecaca' },
+        { id: 'social', zh: '社會', en: 'Social\nStudies', color: '#fefce8', border: '#fef08a' },
+        { id: 'science', zh: '自然科學', en: 'Natural\nSciences', color: '#ecfeff', border: '#a5f3fc' },
+        { id: 'pe', zh: '體育', en: 'Physical\nEducation', color: '#fff7ed', border: '#fed7aa' },
+        { id: 'health', zh: '健康', en: 'Health\nEducation', color: '#f0fdfa', border: '#99f6e4' },
+        { id: 'integrative', zh: '綜合活動', en: 'Integrative\nActivities', color: '#f5f3ff', border: '#ddd6fe' },
+        { id: 'music', zh: '音樂', en: 'Arts', color: '#fdf2f8', border: '#fbcfe8' },
+        { id: 'visual_art', zh: '視覺藝術', en: 'Arts', color: '#fff1f2', border: '#fecdd3' },
+
+        // 低年級專屬科目（一年三班課表）
+        { id: 'life', zh: '生活', en: 'Life\nCurriculum', color: '#f0fdf4', border: '#86efac' },
+        { id: 'life_music', zh: '生活-音樂', en: 'Life Curriculum\n-music', color: '#fae8ff', border: '#e879f9' },
+        { id: 'life_art', zh: '生活-美勞', en: 'Life Curriculum\n-art', color: '#ffe4e6', border: '#fda4af' },
+
+        // 陽明國小校訂與雙語特色課程（中年級與高年級）
+        { id: 'lohas', zh: '樂活陽明', en: 'Lohas\nYangMing', color: '#f7fee7', border: '#d9f99d' },
+        { id: 'eworld', zh: '世界Ｅ起來', en: 'E World', color: '#eef2ff', border: '#c7d2fe' },
+        { id: 'picbook', zh: '世界英樂繪', en: 'Picture Books\nReading Fun', color: '#faf5ff', border: '#e9d5ff' },
+        { id: 'village', zh: '悠活國際村', en: 'International\nVillage', color: '#f0f9ff', border: '#bae6fd' },
+        { id: 'endless_art', zh: '藝猶未盡', en: 'Endless Art', color: '#fef3c7', border: '#f59e0b' },
+        { id: 'math_storm', zh: '渾身解數', en: 'Math\nBrainstorm', color: '#e0f2fe', border: '#38bdf8' },
+        { id: 'joyful_rw', zh: '悅閱欲試', en: 'Joyful R&W', color: '#fef9c3', border: '#eab308' }
+      ];
+
+      // Sample schedule presets for Grade 1, Grade 4, and Grade 6
+      const SAMPLE_1_3_GRID = {
+        '1-1': { zh: '國語', en: 'Mandarin' },
+        '1-2': { zh: '數學', en: 'Mathematics' },
+        '1-3': { zh: '生活-美勞', en: 'Life Curriculum\n-art' },
+        '1-4': { zh: '生活', en: 'Life\nCurriculum' },
+
+        '2-1': { zh: '生活-音樂', en: 'Life Curriculum\n-music' },
+        '2-2': { zh: '生活', en: 'Life\nCurriculum' },
+        '2-3': { zh: '國語', en: 'Mandarin' },
+        '2-4': { zh: '數學', en: 'Mathematics' },
+        '2-5': { zh: '國語', en: 'Mandarin' },
+        '2-6': { zh: '體育', en: 'Physical\nEducation' },
+        '2-7': { zh: '悠活國際村', en: 'International\nVillage' },
+
+        '3-1': { zh: '本土語', en: 'Native\nLanguages' },
+        '3-2': { zh: '生活', en: 'Life\nCurriculum' },
+        '3-3': { zh: '國語', en: 'Mandarin' },
+        '3-4': { zh: '數學', en: 'Mathematics' },
+
+        '4-1': { zh: '數學', en: 'Mathematics' },
+        '4-2': { zh: '國語', en: 'Mandarin' },
+        '4-3': { zh: '世界英樂繪', en: 'Picture Books\nReading Fun' },
+        '4-4': { zh: '生活', en: 'Life\nCurriculum' },
+
+        '5-1': { zh: '國語', en: 'Mandarin' },
+        '5-2': { zh: '樂活陽明', en: 'Lohas\nYangMing' },
+        '5-3': { zh: '體育', en: 'Physical\nEducation' },
+        '5-4': { zh: '健康', en: 'Health\nEducation' }
+      };
+
+      const SAMPLE_4_7_GRID = {
+        '1-1': { zh: '國語', en: 'Mandarin' },
+        '2-1': { zh: '國語', en: 'Mandarin' },
+        '3-1': { zh: '國語', en: 'Mandarin' },
+        '4-1': { zh: '國語', en: 'Mandarin' },
+        '5-1': { zh: '國語', en: 'Mandarin' },
+
+        '1-2': { zh: '數學', en: 'Mathematics' },
+        '2-2': { zh: '數學', en: 'Mathematics' },
+        '3-2': { zh: '數學', en: 'Mathematics' },
+        '4-2': { zh: '數學', en: 'Mathematics' },
+        '5-2': { zh: '悠活國際村', en: 'International\nVillage' },
+
+        '1-3': { zh: '社會', en: 'Social\nStudies' },
+        '2-3': { zh: '本土語', en: 'Native\nLanguages' },
+        '3-3': { zh: '社會', en: 'Social\nStudies' },
+        '4-3': { zh: '世界英樂繪', en: 'Picture Books\nReading Fun' },
+        '5-3': { zh: '自然科學', en: 'Natural\nSciences' },
+
+        '1-4': { zh: '世界Ｅ起來', en: 'E World' },
+        '2-4': { zh: '樂活陽明', en: 'Lohas\nYangMing' },
+        '3-4': { zh: '健康', en: 'Health\nEducation' },
+        '4-4': { zh: '社會', en: 'Social\nStudies' },
+        '5-4': { zh: '音樂', en: 'Arts' },
+
+        '1-5': { zh: '綜合活動', en: 'Integrative\nActivities' },
+        '2-5': { zh: '綜合活動', en: 'Integrative\nActivities' },
+        '4-5': { zh: '視覺藝術', en: 'Arts' },
+
+        '1-6': { zh: '英語', en: 'English' },
+        '2-6': { zh: '自然科學', en: 'Natural\nSciences' },
+        '4-6': { zh: '視覺藝術', en: 'Arts' },
+
+        '1-7': { zh: '體育', en: 'Physical\nEducation' },
+        '2-7': { zh: '自然科學', en: 'Natural\nSciences' },
+        '4-7': { zh: '體育', en: 'Physical\nEducation' }
+      };
+
+      const SAMPLE_6_7_GRID = {
+        '1-1': { zh: '國語', en: 'Mandarin' },
+        '1-2': { zh: '數學', en: 'Mathematics' },
+        '1-3': { zh: '藝猶未盡', en: 'Endless Art' },
+        '1-4': { zh: '視覺藝術', en: 'Arts' },
+        '1-5': { zh: '樂活陽明', en: 'Lohas\nYangMing' },
+        '1-6': { zh: '英語', en: 'English' },
+        '1-7': { zh: '音樂', en: 'Arts' },
+
+        '2-1': { zh: '國語', en: 'Mandarin' },
+        '2-2': { zh: '體育', en: 'Physical\nEducation' },
+        '2-3': { zh: '世界Ｅ起來', en: 'E World' },
+        '2-4': { zh: '數學', en: 'Mathematics' },
+        '2-5': { zh: '社會', en: 'Social\nStudies' },
+        '2-6': { zh: '綜合活動', en: 'Integrative\nActivities' },
+        '2-7': { zh: '悅閱欲試', en: 'Joyful R&W' },
+
+        '3-1': { zh: '自然科學', en: 'Natural\nSciences' },
+        '3-2': { zh: '自然科學', en: 'Natural\nSciences' },
+        '3-3': { zh: '國語', en: 'Mandarin' },
+        '3-4': { zh: '數學', en: 'Mathematics' },
+
+        '4-1': { zh: '英語', en: 'English' },
+        '4-2': { zh: '綜合活動', en: 'Integrative\nActivities' },
+        '4-3': { zh: '國語', en: 'Mandarin' },
+        '4-4': { zh: '數學', en: 'Mathematics' },
+        '4-5': { zh: '健康', en: 'Health\nEducation' },
+        '4-6': { zh: '體育', en: 'Physical\nEducation' },
+        '4-7': { zh: '悠活國際村', en: 'International\nVillage' },
+
+        '5-1': { zh: '國語', en: 'Mandarin' },
+        '5-2': { zh: '自然科學', en: 'Natural\nSciences' },
+        '5-3': { zh: '渾身解數', en: 'Math\nBrainstorm' },
+        '5-4': { zh: '本土語', en: 'Native\nLanguages' },
+        '5-5': { zh: '音樂', en: 'Arts' },
+        '5-6': { zh: '社會', en: 'Social\nStudies' },
+        '5-7': { zh: '社會', en: 'Social\nStudies' }
+      };
+
+      const STORAGE_KEY = 'ym_bilingual_timetable_v2';
+
+      // App State (Starts with blank grid so the user can immediately drag subjects into blank spaces, or click "載入4-7範例")
+      let state = {
+        meta: {
+          titleZh: '高雄市陽明國小 四年七班 日課表',
+          titleEn: 'Kaohsiung Yang Ming Primary School   Grade 4 class 7   school timetable',
+          teacherZh: '導        師：蔡漢璁老師',
+          teacherEn: 'Room Teacher：TSAI, HAN-TSUNG'
+        },
+        subjects: JSON.parse(JSON.stringify(DEFAULT_SUBJECTS)),
+        grid: {} // Blank by default as requested ("將科目移到空白課表空格裡")
+      };
+
+      // Active selected subject for tap-to-place convenience alongside touch drag
+      let activeStampSubject = null;
+
+      // DOM Elements
+      const subjectBar = document.getElementById('subject-bar');
+      const dragGhost = document.getElementById('drag-ghost');
+      const ghostZh = document.getElementById('ghost-zh');
+      const ghostEn = document.getElementById('ghost-en');
+      const dropCells = Array.from(document.querySelectorAll('.drop-cell'));
+
+      const inputTitleZh = document.getElementById('input-title-zh');
+      const inputTitleEn = document.getElementById('input-title-en');
+      const inputTeacherZh = document.getElementById('input-teacher-zh');
+      const inputTeacherEn = document.getElementById('input-teacher-en');
+
+      const displayTitleZh = document.getElementById('display-title-zh');
+      const displayTitleEn = document.getElementById('display-title-en');
+      const displayTeacherZh = document.getElementById('display-teacher-zh');
+      const displayTeacherEn = document.getElementById('display-teacher-en');
+
+      // Toast helper
+      let toastTimer = null;
+      function showToast(msg) {
+        const box = document.getElementById('toast-box');
+        const text = document.getElementById('toast-text');
+        text.textContent = msg;
+        box.classList.remove('opacity-0', 'translate-y-2');
+        box.classList.add('opacity-100', 'translate-y-0');
+        if (toastTimer) clearTimeout(toastTimer);
+        toastTimer = setTimeout(() => {
+          box.classList.add('opacity-0', 'translate-y-2');
+          box.classList.remove('opacity-100', 'translate-y-0');
+        }, 2200);
+      }
+
+      // Confirmation modal helper
+      let confirmCallback = null;
+      function openConfirm(title, desc, onOk) {
+        document.getElementById('confirm-title').textContent = title;
+        document.getElementById('confirm-desc').textContent = desc;
+        confirmCallback = onOk;
+        const modal = document.getElementById('modal-confirm');
+        modal.classList.remove('hidden');
+        modal.classList.add('flex');
+      }
+      function closeConfirm() {
+        const modal = document.getElementById('modal-confirm');
+        modal.classList.add('hidden');
+        modal.classList.remove('flex');
+        confirmCallback = null;
+      }
+      document.getElementById('btn-confirm-cancel').addEventListener('click', closeConfirm);
+      document.getElementById('btn-confirm-ok').addEventListener('click', () => {
+        if (confirmCallback) confirmCallback();
+        closeConfirm();
+      });
+
+      // LocalStorage Save & Load
+      function saveState() {
+        try {
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+        } catch (e) {
+          // Ignore storage errors in restricted iframes
+        }
+      }
+
+      function loadState() {
+        try {
+          let raw = localStorage.getItem(STORAGE_KEY);
+          if (!raw) {
+            raw = localStorage.getItem('ym_bilingual_timetable_v1');
+          }
+          if (raw) {
+            const parsed = JSON.parse(raw);
+            if (parsed && parsed.meta && Array.isArray(parsed.subjects) && parsed.grid) {
+              state.meta = parsed.meta;
+              state.grid = parsed.grid;
+              // Synchronize standard subjects with updated 21 subjects, while keeping user's custom subjects
+              const customSubjs = parsed.subjects.filter(s => s.isCustom);
+              state.subjects = JSON.parse(JSON.stringify(DEFAULT_SUBJECTS)).concat(customSubjs);
+            }
+          }
+        } catch (e) {
+          // Ignore storage errors
+        }
+      }
+
+      // Escape HTML helper
+      function escapeHtml(str) {
+        return String(str || '')
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;');
+      }
+
+      // Render Basic Info (sync inputs and contenteditable elements)
+      function renderMeta(source) {
+        if (source !== 'input') {
+          inputTitleZh.value = state.meta.titleZh;
+          inputTitleEn.value = state.meta.titleEn;
+          inputTeacherZh.value = state.meta.teacherZh;
+          inputTeacherEn.value = state.meta.teacherEn;
+        }
+        if (source !== 'editable') {
+          displayTitleZh.textContent = state.meta.titleZh;
+          displayTitleEn.textContent = state.meta.titleEn;
+          displayTeacherZh.textContent = state.meta.teacherZh;
+          displayTeacherEn.textContent = state.meta.teacherEn;
+        }
+      }
+
+      // Render Single-Row Subject Bar (All subjects stay in one single horizontal row and never disappear when dragged)
+      function renderSubjectBar() {
+        subjectBar.innerHTML = '';
+        state.subjects.forEach((subj) => {
+          const card = document.createElement('div');
+          const isSelected = activeStampSubject && activeStampSubject.id === subj.id;
+          card.className = `subject-chip shrink-0 rounded-xl border-2 px-3 py-1.5 flex items-center gap-2 shadow-xs ${
+            isSelected ? 'active-stamp' : ''
+          }`;
+          card.style.backgroundColor = subj.color || '#ffffff';
+          card.style.borderColor = subj.border || '#cbd5e1';
+          card.dataset.subjectId = subj.id;
+
+          const textWrap = document.createElement('div');
+          textWrap.className = 'timetable-font text-center leading-tight pointer-events-none';
+          const enDisplay = (subj.en || '').replace(/\n/g, ' ');
+          textWrap.innerHTML = `
+            <div class="text-sm font-bold text-slate-900 whitespace-nowrap">${escapeHtml(subj.zh)}</div>
+            <div class="text-[11px] font-bold text-slate-600 whitespace-nowrap" style="font-family: 'Times New Roman', serif;">${escapeHtml(enDisplay || ' ')}</div>
+          `;
+          card.appendChild(textWrap);
+
+          // If custom subject, allow deleting from bar
+          if (subj.isCustom) {
+            const delBtn = document.createElement('button');
+            delBtn.type = 'button';
+            delBtn.className = 'ml-1 w-4 h-4 rounded-full bg-slate-200/80 hover:bg-rose-500 hover:text-white text-slate-600 flex items-center justify-center text-[10px] leading-none transition';
+            delBtn.title = '刪除此自訂科目';
+            delBtn.innerHTML = '&times;';
+            delBtn.addEventListener('pointerdown', (e) => e.stopPropagation());
+            delBtn.addEventListener('click', (e) => {
+              e.stopPropagation();
+              state.subjects = state.subjects.filter((s) => s.id !== subj.id);
+              if (activeStampSubject && activeStampSubject.id === subj.id) {
+                activeStampSubject = null;
+              }
+              saveState();
+              renderSubjectBar();
+              showToast(`已移除自訂科目「${subj.zh}」`);
+            });
+            card.appendChild(delBtn);
+          }
+
+          // Attach unified pointer/touch drag handler to clone subject into timetable cells
+          attachSubjectDragEvents(card, subj);
+          subjectBar.appendChild(card);
+        });
+      }
+
+      // Render Timetable Grid Cells
+      function renderGrid() {
+        dropCells.forEach((cell) => {
+          const key = `${cell.dataset.day}-${cell.dataset.period}`;
+          const item = state.grid[key];
+          cell.innerHTML = '';
+
+          if (item && item.zh) {
+            cell.classList.add('has-subject');
+            const wrapper = document.createElement('div');
+            wrapper.className = 'w-full h-full px-1 py-1 flex flex-col items-center justify-center relative group cursor-grab';
+
+            const zhEl = document.createElement('div');
+            zhEl.className = 'text-sm sm:text-[17px] font-bold text-black leading-tight tracking-tight';
+            zhEl.textContent = item.zh;
+            wrapper.appendChild(zhEl);
+
+            if (item.en) {
+              const enLines = String(item.en).split('\n');
+              const enEl = document.createElement('div');
+              enEl.className = 'text-[11px] sm:text-[14px] font-bold text-black leading-tight mt-0.5';
+              enEl.style.fontFamily = "'Times New Roman', serif";
+              enEl.innerHTML = enLines.map((l) => escapeHtml(l)).join('<br/>');
+              wrapper.appendChild(enEl);
+            }
+
+            // Clear button in top-right corner of occupied cell
+            const clearBtn = document.createElement('button');
+            clearBtn.type = 'button';
+            clearBtn.className = 'cell-clear-btn no-print absolute top-0.5 right-0.5 w-5 h-5 rounded-full bg-rose-500 text-white text-xs font-bold flex items-center justify-center shadow-xs hover:bg-rose-600';
+            clearBtn.title = '清除此格科目';
+            clearBtn.innerHTML = '&times;';
+            clearBtn.addEventListener('pointerdown', (e) => e.stopPropagation());
+            clearBtn.addEventListener('click', (e) => {
+              e.stopPropagation();
+              delete state.grid[key];
+              saveState();
+              renderGrid();
+            });
+            wrapper.appendChild(clearBtn);
+
+            // Allow dragging from a cell to copy/move or tap to replace
+            attachCellPointerEvents(wrapper, cell, key, item);
+            cell.appendChild(wrapper);
+          } else {
+            cell.classList.remove('has-subject');
+            // Empty placeholder hint on hover / stamp mode
+            const hint = document.createElement('div');
+            hint.className = 'no-print no-export w-full h-full flex items-center justify-center text-[11px] text-slate-300 opacity-0 hover:opacity-100 transition select-none';
+            hint.textContent = activeStampSubject ? `點擊填入「${activeStampSubject.zh}」` : '拖曳科目至此';
+            cell.appendChild(hint);
+          }
+        });
+      }
+
+      // Unified Pointer / Touch Drag-and-Drop Engine (Works on iPad, Android tablets, touchscreens, and desktop mice)
+      let dragSession = null;
+
+      function attachSubjectDragEvents(element, subj) {
+        element.addEventListener('pointerdown', (e) => {
+          if (e.button !== 0 && e.pointerType === 'mouse') return;
+          e.preventDefault();
+
+          const startX = e.clientX;
+          const startY = e.clientY;
+
+          dragSession = {
+            subj: { zh: subj.zh, en: subj.en },
+            sourceSubjObj: subj,
+            startX,
+            startY,
+            isDragging: false,
+            hoveredCell: null
+          };
+
+          element.setPointerCapture(e.pointerId);
+
+          const onPointerMove = (moveEvent) => {
+            if (!dragSession) return;
+            const dx = moveEvent.clientX - dragSession.startX;
+            const dy = moveEvent.clientY - dragSession.startY;
+
+            if (!dragSession.isDragging && Math.hypot(dx, dy) > 6) {
+              dragSession.isDragging = true;
+              ghostZh.textContent = dragSession.subj.zh;
+              ghostEn.textContent = (dragSession.subj.en || '').replace(/\n/g, ' ');
+              dragGhost.style.display = 'block';
+            }
+
+            if (dragSession.isDragging) {
+              dragGhost.style.left = `${moveEvent.clientX}px`;
+              dragGhost.style.top = `${moveEvent.clientY}px`;
+
+              const targetCell = findDropCellAtPoint(moveEvent.clientX, moveEvent.clientY);
+              if (dragSession.hoveredCell && dragSession.hoveredCell !== targetCell) {
+                dragSession.hoveredCell.classList.remove('drag-over');
+              }
+              if (targetCell) {
+                targetCell.classList.add('drag-over');
+              }
+              dragSession.hoveredCell = targetCell;
+            }
+          };
+
+          const onPointerUp = (upEvent) => {
+            element.removeEventListener('pointermove', onPointerMove);
+            element.removeEventListener('pointerup', onPointerUp);
+            element.removeEventListener('pointercancel', onPointerUp);
+
+            if (!dragSession) return;
+
+            if (dragSession.isDragging) {
+              dragGhost.style.display = 'none';
+              if (dragSession.hoveredCell) {
+                dragSession.hoveredCell.classList.remove('drag-over');
+              }
+              const targetCell = findDropCellAtPoint(upEvent.clientX, upEvent.clientY);
+              if (targetCell) {
+                const key = `${targetCell.dataset.day}-${targetCell.dataset.period}`;
+                state.grid[key] = {
+                  zh: dragSession.subj.zh,
+                  en: dragSession.subj.en
+                };
+                saveState();
+                renderGrid();
+              }
+            } else {
+              // Tap on subject chip: toggle stamp selection mode
+              if (activeStampSubject && activeStampSubject.id === subj.id) {
+                activeStampSubject = null;
+              } else {
+                activeStampSubject = subj;
+                showToast(`已選取「${subj.zh}」，可直接點選下方課表空格填入`);
+              }
+              renderSubjectBar();
+              renderGrid();
+            }
+
+            dragSession = null;
+          };
+
+          element.addEventListener('pointermove', onPointerMove);
+          element.addEventListener('pointerup', onPointerUp);
+          element.addEventListener('pointercancel', onPointerUp);
+        });
+      }
+
+      // Allow dragging an existing cell subject to another cell (or tapping cell in stamp mode)
+      function attachCellPointerEvents(wrapper, cell, key, item) {
+        wrapper.addEventListener('pointerdown', (e) => {
+          if (e.button !== 0 && e.pointerType === 'mouse') return;
+          // If user has an active stamp selected, tapping replaces immediately
+          if (activeStampSubject) {
+            state.grid[key] = {
+              zh: activeStampSubject.zh,
+              en: activeStampSubject.en
+            };
+            saveState();
+            renderGrid();
+            return;
+          }
+
+          e.preventDefault();
+          const startX = e.clientX;
+          const startY = e.clientY;
+          let isCellDragging = false;
+          let hoveredCell = null;
+
+          wrapper.setPointerCapture(e.pointerId);
+
+          const onMove = (moveEvent) => {
+            const dx = moveEvent.clientX - startX;
+            const dy = moveEvent.clientY - startY;
+            if (!isCellDragging && Math.hypot(dx, dy) > 8) {
+              isCellDragging = true;
+              ghostZh.textContent = item.zh;
+              ghostEn.textContent = (item.en || '').replace(/\n/g, ' ');
+              dragGhost.style.display = 'block';
+            }
+            if (isCellDragging) {
+              dragGhost.style.left = `${moveEvent.clientX}px`;
+              dragGhost.style.top = `${moveEvent.clientY}px`;
+              const target = findDropCellAtPoint(moveEvent.clientX, moveEvent.clientY);
+              if (hoveredCell && hoveredCell !== target) {
+                hoveredCell.classList.remove('drag-over');
+              }
+              if (target) target.classList.add('drag-over');
+              hoveredCell = target;
+            }
+          };
+
+          const onUp = (upEvent) => {
+            wrapper.removeEventListener('pointermove', onMove);
+            wrapper.removeEventListener('pointerup', onUp);
+            wrapper.removeEventListener('pointercancel', onUp);
+
+            if (isCellDragging) {
+              dragGhost.style.display = 'none';
+              if (hoveredCell) hoveredCell.classList.remove('drag-over');
+              const target = findDropCellAtPoint(upEvent.clientX, upEvent.clientY);
+              if (target) {
+                const targetKey = `${target.dataset.day}-${target.dataset.period}`;
+                if (targetKey !== key) {
+                  state.grid[targetKey] = { zh: item.zh, en: item.en };
+                  delete state.grid[key];
+                  saveState();
+                  renderGrid();
+                }
+              } else {
+                // Dragged outside table -> remove from cell
+                delete state.grid[key];
+                saveState();
+                renderGrid();
+              }
+            }
+          };
+
+          wrapper.addEventListener('pointermove', onMove);
+          wrapper.addEventListener('pointerup', onUp);
+          wrapper.addEventListener('pointercancel', onUp);
+        });
+      }
+
+      // Click on empty drop cell when a subject is selected in stamp mode
+      dropCells.forEach((cell) => {
+        cell.addEventListener('click', () => {
+          if (!activeStampSubject) return;
+          const key = `${cell.dataset.day}-${cell.dataset.period}`;
+          state.grid[key] = {
+            zh: activeStampSubject.zh,
+            en: activeStampSubject.en
+          };
+          saveState();
+          renderGrid();
+        });
+      });
+
+      function findDropCellAtPoint(x, y) {
+        const el = document.elementFromPoint(x, y);
+        if (!el) return null;
+        return el.closest('.drop-cell');
+      }
+
+      // Horizontal scroll buttons for single-row subject bar
+      document.getElementById('btn-scroll-left').addEventListener('click', () => {
+        subjectBar.scrollBy({ left: -240, behavior: 'smooth' });
+      });
+      document.getElementById('btn-scroll-right').addEventListener('click', () => {
+        subjectBar.scrollBy({ left: 240, behavior: 'smooth' });
+      });
+
+      // Basic info drawer toggle & two-way binding
+      const infoDrawer = document.getElementById('info-drawer');
+      document.getElementById('btn-toggle-info').addEventListener('click', () => {
+        infoDrawer.classList.toggle('hidden');
+      });
+      document.getElementById('btn-close-info').addEventListener('click', () => {
+        infoDrawer.classList.add('hidden');
+      });
+
+      function bindMetaPair(inputEl, editableEl, key) {
+        inputEl.addEventListener('input', () => {
+          state.meta[key] = inputEl.value;
+          renderMeta('input');
+          saveState();
+        });
+        editableEl.addEventListener('input', () => {
+          state.meta[key] = editableEl.textContent;
+          renderMeta('editable');
+          saveState();
+        });
+      }
+
+      bindMetaPair(inputTitleZh, displayTitleZh, 'titleZh');
+      bindMetaPair(inputTitleEn, displayTitleEn, 'titleEn');
+      bindMetaPair(inputTeacherZh, displayTeacherZh, 'teacherZh');
+      bindMetaPair(inputTeacherEn, displayTeacherEn, 'teacherEn');
+
+      // Add Custom Subject Modal
+      const modalAddSubj = document.getElementById('modal-add-subject');
+      function openAddSubjModal() {
+        modalAddSubj.classList.remove('hidden');
+        modalAddSubj.classList.add('flex');
+        document.getElementById('new-subj-zh').focus();
+      }
+      function closeAddSubjModal() {
+        modalAddSubj.classList.add('hidden');
+        modalAddSubj.classList.remove('flex');
+        document.getElementById('form-add-subject').reset();
+      }
+      document.getElementById('btn-open-add-subject').addEventListener('click', openAddSubjModal);
+      document.getElementById('btn-close-add-modal').addEventListener('click', closeAddSubjModal);
+      document.getElementById('btn-cancel-add-modal').addEventListener('click', closeAddSubjModal);
+
+      document.getElementById('form-add-subject').addEventListener('submit', (e) => {
+        e.preventDefault();
+        const zh = document.getElementById('new-subj-zh').value.trim();
+        const en = document.getElementById('new-subj-en').value.trim();
+        if (!zh) return;
+
+        const customPalette = [
+          { color: '#eff6ff', border: '#bfdbfe' },
+          { color: '#f0fdf4', border: '#bbf7d0' },
+          { color: '#fefce8', border: '#fef08a' },
+          { color: '#fdf4ff', border: '#f5d0fe' },
+          { color: '#fff7ed', border: '#fed7aa' }
+        ];
+        const pick = customPalette[state.subjects.length % customPalette.length];
+
+        const newSubj = {
+          id: 'custom_' + Date.now(),
+          zh,
+          en,
+          color: pick.color,
+          border: pick.border,
+          isCustom: true
+        };
+        state.subjects.push(newSubj);
+        saveState();
+        renderSubjectBar();
+        closeAddSubjModal();
+        // Scroll subject bar to end to reveal new subject
+        setTimeout(() => {
+          subjectBar.scrollTo({ left: subjectBar.scrollWidth, behavior: 'smooth' });
+        }, 60);
+        showToast(`已新增科目「${zh}」至科目列`);
+      });
+
+      // Sample Timetable Modal & Selection Logic
+      const modalSample = document.getElementById('modal-sample');
+      document.getElementById('btn-load-sample').addEventListener('click', () => {
+        modalSample.classList.remove('hidden');
+        modalSample.classList.add('flex');
+      });
+      function closeSampleModal() {
+        modalSample.classList.add('hidden');
+        modalSample.classList.remove('flex');
+      }
+      document.getElementById('btn-close-sample-modal').addEventListener('click', closeSampleModal);
+      document.getElementById('btn-cancel-sample-modal').addEventListener('click', closeSampleModal);
+
+      function applySampleTimetable(titleZh, titleEn, teacherZh, teacherEn, gridObj, toastMsg) {
+        state.meta.titleZh = titleZh;
+        state.meta.titleEn = titleEn;
+        state.meta.teacherZh = teacherZh;
+        state.meta.teacherEn = teacherEn;
+        state.grid = JSON.parse(JSON.stringify(gridObj));
+        saveState();
+        renderMeta();
+        renderGrid();
+        closeSampleModal();
+        showToast(toastMsg);
+      }
+
+      document.getElementById('btn-load-sample-1').addEventListener('click', () => {
+        applySampleTimetable(
+          '高雄市陽明國小 一年三班 日課表',
+          'Kaohsiung Yang Ming Primary School   Grade 1 class 3 a school timetable',
+          '導        師：孫筠婷老師',
+          'Room Teacher：導師 孫筠婷 老師',
+          SAMPLE_1_3_GRID,
+          '已載入一年三班（低年級）範例課表'
+        );
+      });
+
+      document.getElementById('btn-load-sample-4').addEventListener('click', () => {
+        applySampleTimetable(
+          '高雄市陽明國小 四年七班 日課表',
+          'Kaohsiung Yang Ming Primary School   Grade 4 class 7   school timetable',
+          '導        師：蔡漢璁老師',
+          'Room Teacher：TSAI, HAN-TSUNG',
+          SAMPLE_4_7_GRID,
+          '已載入四年七班（中年級）範例課表'
+        );
+      });
+
+      document.getElementById('btn-load-sample-6').addEventListener('click', () => {
+        applySampleTimetable(
+          '高雄市陽明國小 六年七班 日課表',
+          'Kaohsiung Yang Ming Primary School Grade 6 class 7 Timetable',
+          '導        師：王亭云老師',
+          'Room Teacher：Wang Ting-Yun',
+          SAMPLE_6_7_GRID,
+          '已載入六年七班（高年級）範例課表'
+        );
+      });
+
+      // Clear all grid cells
+      document.getElementById('btn-clear-grid').addEventListener('click', () => {
+        openConfirm(
+          '清空所有課表空格',
+          '確定要清空課表中的所有科目嗎？（上方的單行科目列與基本資訊會完整保留）',
+          () => {
+            state.grid = {};
+            saveState();
+            renderGrid();
+            showToast('已清空所有課表空格');
+          }
+        );
+      });
+
+      // High-Precision Native Canvas Timetable Renderer
+      // Draws the exact A4 timetable directly onto an HTML5 Canvas (zero html2canvas bugs, zero black diagonal bug, crisp typography on all phones)
+      async function capturePaperCanvas() {
+        const W = 1240;
+        const H = 1754; // A4 ratio at 150+ DPI
+        const canvas = document.createElement('canvas');
+        canvas.width = W;
+        canvas.height = H;
+        const ctx = canvas.getContext('2d');
+
+        // White background
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, W, H);
+
+        const serifZh = "'DFKai-SB', 'BiauKai', '標楷體', 'Noto Serif TC', serif";
+        const serifEn = "'Times New Roman', 'Noto Serif TC', serif";
+
+        // 1. Header Chinese Title
+        ctx.fillStyle = '#000000';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.font = `bold 44px ${serifZh}`;
+        ctx.fillText(state.meta.titleZh || '', W / 2, 82);
+
+        // 2. Header English Title
+        ctx.font = `bold 23px ${serifEn}`;
+        ctx.fillText(state.meta.titleEn || '', W / 2, 132);
+
+        // 3. Decorative Potted Plants Banner
+        const bannerImg = document.querySelector('#timetable-paper img');
+        if (bannerImg && bannerImg.complete && bannerImg.naturalWidth > 0) {
+          const bw = 980;
+          const bh = (bannerImg.naturalHeight / bannerImg.naturalWidth) * bw;
+          ctx.drawImage(bannerImg, (W - bw) / 2, 156, bw, bh);
+        }
+
+        // 4. Table Geometry
+        const tableLeft = 90;
+        const tableTop = 225;
+        const tableW = W - 180; // 1060px
+        // Column widths matching colgroup: 11.5%, 8.5%, 16% x 5
+        const colW = [
+          Math.round(tableW * 0.115),
+          Math.round(tableW * 0.085),
+          Math.round(tableW * 0.16),
+          Math.round(tableW * 0.16),
+          Math.round(tableW * 0.16),
+          Math.round(tableW * 0.16)
+        ];
+        colW.push(tableW - colW.reduce((a, b) => a + b, 0));
+
+        const colX = [tableLeft];
+        for (let i = 0; i < colW.length; i++) {
+          colX.push(colX[i] + colW[i]);
+        }
+
+        // Row heights
+        const hTeacher = 105;
+        const hWeekHeader = 95;
+        const hMorning = 48;
+        const hPeriod = 148;
+        const hLunch = 50;
+        const hHome = 76;
+
+        const rows = [
+          { type: 'teacher', h: hTeacher, thickBottom: true },
+          { type: 'weekHeader', h: hWeekHeader, thickBottom: true },
+          { type: 'morning', h: hMorning, thickBottom: true },
+          { type: 'period', period: 1, timeTop: '08：30', timeBot: '09：10', ord: ['the first', 'class'], h: hPeriod },
+          { type: 'period', period: 2, timeTop: '09：20', timeBot: '10：00', ord: ['the', 'second', 'class'], h: hPeriod },
+          { type: 'period', period: 3, timeTop: '10：30', timeBot: '11：10', ord: ['the third', 'class'], h: hPeriod },
+          { type: 'period', period: 4, timeTop: '11：20', timeBot: '12：00', ord: ['the', 'fourth', 'class'], h: hPeriod, thickBottom: true },
+          { type: 'lunch', h: hLunch, thickBottom: true },
+          { type: 'period', period: 5, timeTop: '13：30', timeBot: '14：10', ord: ['the fifth', 'class'], h: hPeriod },
+          { type: 'period', period: 6, timeTop: '14：20', timeBot: '15：00', ord: ['the sixth', 'class'], h: hPeriod },
+          { type: 'period', period: 7, timeTop: '15：20', timeBot: '16：00', ord: ['the', 'seventh', 'class'], h: hPeriod, thickBottom: true },
+          { type: 'home', h: hHome }
+        ];
+
+        let curY = tableTop;
+        const span2W = colW[0] + colW[1];
+
+        rows.forEach((r) => {
+          const y0 = curY;
+          const y1 = curY + r.h;
+          const ym = (y0 + y1) / 2;
+
+          ctx.fillStyle = '#000000';
+          ctx.strokeStyle = '#000000';
+
+          if (r.type === 'teacher') {
+            ctx.textAlign = 'left';
+            ctx.font = `bold 29px ${serifZh}`;
+            ctx.fillText(state.meta.teacherZh || '', tableLeft + tableW * 0.48, y0 + 36);
+            ctx.font = `bold 25px ${serifEn}`;
+            ctx.fillText(state.meta.teacherEn || '', tableLeft + tableW * 0.48, y0 + 76);
+          } else if (r.type === 'weekHeader') {
+            // Vertical lines for columns 2..6
+            for (let c = 2; c <= 6; c++) {
+              ctx.lineWidth = 1.5;
+              ctx.beginPath();
+              ctx.moveTo(colX[c], y0);
+              ctx.lineTo(colX[c], y1);
+              ctx.stroke();
+            }
+            // Diagonal line in first merged cell (col 0 + col 1)
+            ctx.lineWidth = 1.5;
+            ctx.beginPath();
+            ctx.moveTo(tableLeft, y0);
+            ctx.lineTo(tableLeft + span2W, y1);
+            ctx.stroke();
+
+            ctx.font = `bold 20px ${serifZh}`;
+            ctx.textAlign = 'right';
+            ctx.fillText('星期（week）', tableLeft + span2W - 10, y0 + 24);
+            ctx.textAlign = 'left';
+            ctx.fillText('時間（time）', tableLeft + 10, y1 - 20);
+
+            const daysZh = ['星期一', '星期二', '星期三', '星期四', '星期五'];
+            const daysEn = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
+            for (let d = 0; d < 5; d++) {
+              const cx = colX[d + 2] + colW[d + 2] / 2;
+              ctx.textAlign = 'center';
+              ctx.font = `bold 30px ${serifZh}`;
+              ctx.fillText(daysZh[d], cx, y0 + 34);
+              ctx.font = `bold 21px ${serifEn}`;
+              ctx.fillText(daysEn[d], cx, y0 + 70);
+            }
+          } else if (r.type === 'morning') {
+            // Vertical divider after col 1
+            ctx.lineWidth = 1.5;
+            ctx.beginPath();
+            ctx.moveTo(colX[2], y0);
+            ctx.lineTo(colX[2], y1);
+            ctx.stroke();
+
+            ctx.textAlign = 'center';
+            ctx.font = `bold 23px ${serifEn}`;
+            ctx.fillText('08：00~08：20', tableLeft + span2W / 2, ym);
+
+            ctx.font = `bold 26px ${serifZh}`;
+            ctx.fillText('導師時間（room teacher time）', colX[2] + (tableW - span2W) / 2, ym);
+          } else if (r.type === 'lunch') {
+            ctx.lineWidth = 1.5;
+            ctx.beginPath();
+            ctx.moveTo(colX[2], y0);
+            ctx.lineTo(colX[2], y1);
+            ctx.stroke();
+
+            ctx.textAlign = 'center';
+            ctx.font = `bold 23px ${serifEn}`;
+            ctx.fillText('12：00~13：20', tableLeft + span2W / 2, ym);
+
+            ctx.font = `bold 26px ${serifZh}`;
+            ctx.fillText('午餐（lunchtime）；午休（lunch break）', colX[2] + (tableW - span2W) / 2, ym);
+          } else if (r.type === 'home') {
+            ctx.lineWidth = 1.5;
+            ctx.beginPath();
+            ctx.moveTo(colX[2], y0);
+            ctx.lineTo(colX[2], y1);
+            ctx.stroke();
+
+            ctx.textAlign = 'center';
+            ctx.font = `bold 22px ${serifEn}`;
+            ctx.fillText('12：40~13：00', tableLeft + span2W / 2, y0 + 24);
+            ctx.fillText('16：00~16：20', tableLeft + span2W / 2, y0 + 54);
+
+            ctx.font = `bold 26px ${serifZh}`;
+            ctx.fillText('放學（home time）', colX[2] + (tableW - span2W) / 2, ym);
+          } else if (r.type === 'period') {
+            // Vertical dividers for all columns
+            for (let c = 1; c <= 6; c++) {
+              ctx.lineWidth = 1.5;
+              ctx.beginPath();
+              ctx.moveTo(colX[c], y0);
+              ctx.lineTo(colX[c], y1);
+              ctx.stroke();
+            }
+
+            // Col 0: Time
+            const c0x = colX[0] + colW[0] / 2;
+            ctx.textAlign = 'center';
+            ctx.font = `bold 21px ${serifEn}`;
+            ctx.fillText(r.timeTop, c0x, ym - 30);
+            ctx.fillText('│', c0x, ym);
+            ctx.fillText(r.timeBot, c0x, ym + 30);
+
+            // Col 1: Period number + ordinal label
+            const c1x = colX[1] + colW[1] / 2;
+            ctx.font = `bold 36px ${serifEn}`;
+            if (r.ord.length === 2) {
+              ctx.fillText(String(r.period), c1x, y0 + 42);
+              ctx.font = `bold 17px ${serifEn}`;
+              ctx.fillText(r.ord[0], c1x, y0 + 82);
+              ctx.fillText(r.ord[1], c1x, y0 + 104);
+            } else {
+              ctx.fillText(String(r.period), c1x, y0 + 36);
+              ctx.font = `bold 17px ${serifEn}`;
+              ctx.fillText(r.ord[0], c1x, y0 + 72);
+              ctx.fillText(r.ord[1], c1x, y0 + 93);
+              ctx.fillText(r.ord[2], c1x, y0 + 114);
+            }
+
+            // Cols 2..6: Day 1..5 subjects
+            for (let d = 1; d <= 5; d++) {
+              const cellData = state.grid[`${d}-${r.period}`];
+              if (cellData && cellData.zh) {
+                const cx = colX[d + 1] + colW[d + 1] / 2;
+                const enLines = cellData.en ? String(cellData.en).split('\n').filter(Boolean) : [];
+                if (enLines.length === 0) {
+                  ctx.font = `bold 27px ${serifZh}`;
+                  ctx.fillText(cellData.zh, cx, ym);
+                } else if (enLines.length === 1) {
+                  ctx.font = `bold 26px ${serifZh}`;
+                  ctx.fillText(cellData.zh, cx, ym - 16);
+                  ctx.font = `bold 21px ${serifEn}`;
+                  ctx.fillText(enLines[0], cx, ym + 18);
+                } else {
+                  ctx.font = `bold 26px ${serifZh}`;
+                  ctx.fillText(cellData.zh, cx, ym - 30);
+                  ctx.font = `bold 20px ${serifEn}`;
+                  ctx.fillText(enLines[0], cx, ym + 2);
+                  ctx.fillText(enLines[1], cx, ym + 28);
+                }
+              }
+            }
+          }
+
+          // Bottom border of row
+          ctx.lineWidth = r.thickBottom ? 3.5 : 1.5;
+          ctx.beginPath();
+          ctx.moveTo(tableLeft, y1);
+          ctx.lineTo(tableLeft + tableW, y1);
+          ctx.stroke();
+
+          curY = y1;
+        });
+
+        // Outer thick border of table
+        ctx.lineWidth = 4.5;
+        ctx.strokeRect(tableLeft, tableTop, tableW, curY - tableTop);
+
+        return canvas;
+      }
+
+      // Built-in Zero-Dependency PDF Generator (Embeds JPEG Canvas into a valid A4 PDF Blob without needing external CDN libraries)
+      function buildPdfBlobFromJpegDataUrl(jpegDataUrl, imgWidth, imgHeight) {
+        const base64 = jpegDataUrl.split(',')[1];
+        const binStr = atob(base64);
+        const jpegBytes = new Uint8Array(binStr.length);
+        for (let i = 0; i < binStr.length; i++) {
+          jpegBytes[i] = binStr.charCodeAt(i);
+        }
+
+        const pageW = 595.28; // A4 width in pt
+        const pageH = 841.89; // A4 height in pt
+        const encoder = new TextEncoder();
+        const chunks = [];
+        const offsets = [];
+        let byteLength = 0;
+
+        function pushStr(str) {
+          const arr = encoder.encode(str);
+          chunks.push(arr);
+          byteLength += arr.byteLength;
+        }
+        function pushBytes(arr) {
+          chunks.push(arr);
+          byteLength += arr.byteLength;
+        }
+        function startObj(id) {
+          offsets[id] = byteLength;
+          pushStr(`${id} 0 obj\n`);
+        }
+        function endObj() {
+          pushStr(`\nendobj\n`);
+        }
+
+        pushStr(`%PDF-1.4\n%\xFF\xFF\xFF\xFF\n`);
+
+        startObj(1);
+        pushStr(`<< /Type /Catalog /Pages 2 0 R >>`);
+        endObj();
+
+        startObj(2);
+        pushStr(`<< /Type /Pages /Kids [3 0 R] /Count 1 >>`);
+        endObj();
+
+        startObj(3);
+        pushStr(`<< /Type /Page /Parent 2 0 R /Resources << /XObject << /Im0 4 0 R >> >> /MediaBox [0 0 ${pageW.toFixed(2)} ${pageH.toFixed(2)}] /Contents 5 0 R >>`);
+        endObj();
+
+        startObj(4);
+        pushStr(`<< /Type /XObject /Subtype /Image /Width ${imgWidth} /Height ${imgHeight} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${jpegBytes.byteLength} >>\nstream\n`);
+        pushBytes(jpegBytes);
+        pushStr(`\nendstream`);
+        endObj();
+
+        const contentStream = `q\n${pageW.toFixed(2)} 0 0 ${pageH.toFixed(2)} 0 0 cm\n/Im0 Do\nQ`;
+        const contentBytes = encoder.encode(contentStream);
+        startObj(5);
+        pushStr(`<< /Length ${contentBytes.byteLength} >>\nstream\n`);
+        pushBytes(contentBytes);
+        pushStr(`\nendstream`);
+        endObj();
+
+        const xrefStart = byteLength;
+        pushStr(`xref\n0 6\n0000000000 65535 f \n`);
+        for (let i = 1; i <= 5; i++) {
+          const off = String(offsets[i]).padStart(10, '0');
+          pushStr(`${off} 00000 n \n`);
+        }
+        pushStr(`trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n${xrefStart}\n%%EOF`);
+
+        return new Blob(chunks, { type: 'application/pdf' });
+      }
+
+      function dataUrlToBlob(dataUrl) {
+        const parts = dataUrl.split(',');
+        const mime = parts[0].match(/:(.*?);/)[1];
+        const binStr = atob(parts[1]);
+        const arr = new Uint8Array(binStr.length);
+        for (let i = 0; i < binStr.length; i++) {
+          arr[i] = binStr.charCodeAt(i);
+        }
+        return new Blob([arr], { type: mime });
+      }
+
+      // Export Preview & Mobile Share Helper
+      const modalExportPreview = document.getElementById('modal-export-preview');
+      const exportPreviewImg = document.getElementById('export-preview-img');
+      const btnModalNativeShare = document.getElementById('btn-modal-native-share');
+      const btnModalDirectDl = document.getElementById('btn-modal-direct-dl');
+      const btnModalFullscreenShot = document.getElementById('btn-modal-fullscreen-shot');
+      let currentShareFile = null;
+      let lastRenderedPngDataUrl = '';
+
+      document.getElementById('btn-close-export-modal').addEventListener('click', () => {
+        modalExportPreview.classList.add('hidden');
+        modalExportPreview.classList.remove('flex');
+      });
+
+      // Enter Full-Screen Clean Mode for 1-page mobile screenshot / long-press image
+      function enterCleanScreenshotMode(pngDataUrl) {
+        modalExportPreview.classList.add('hidden');
+        modalExportPreview.classList.remove('flex');
+        document.body.classList.add('clean-view-mode');
+        // Replace main view temporarily with the crisp rendered image so it fits 100% on the phone screen without scrolling
+        const stageWrapper = document.getElementById('timetable-stage-wrapper');
+        const paper = document.getElementById('timetable-paper');
+        paper.classList.add('hidden');
+        let cleanImgWrap = document.getElementById('clean-shot-img-wrap');
+        if (!cleanImgWrap) {
+          cleanImgWrap = document.createElement('div');
+          cleanImgWrap.id = 'clean-shot-img-wrap';
+          cleanImgWrap.className = 'flex flex-col items-center justify-center w-full';
+          stageWrapper.appendChild(cleanImgWrap);
+        }
+        cleanImgWrap.classList.remove('hidden');
+        cleanImgWrap.innerHTML = `
+          <img src="${pngDataUrl}" alt="完整課表高畫質圖片" class="max-h-[86vh] w-auto max-w-full object-contain shadow-sm border border-slate-200 bg-white" />
+        `;
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      }
+
+      document.getElementById('btn-exit-clean-mode').addEventListener('click', () => {
+        document.body.classList.remove('clean-view-mode');
+        const paper = document.getElementById('timetable-paper');
+        paper.classList.remove('hidden');
+        const cleanImgWrap = document.getElementById('clean-shot-img-wrap');
+        if (cleanImgWrap) cleanImgWrap.classList.add('hidden');
+      });
+
+      btnModalFullscreenShot.addEventListener('click', () => {
+        if (lastRenderedPngDataUrl) {
+          enterCleanScreenshotMode(lastRenderedPngDataUrl);
+        }
+      });
+
+      btnModalNativeShare.addEventListener('click', async () => {
+        if (currentShareFile && navigator.share) {
+          try {
+            await navigator.share({
+              title: state.meta.titleZh || '雙語功課表',
+              files: [currentShareFile]
+            });
+            return;
+          } catch (err) {
+            if (err && err.name === 'AbortError') return;
+          }
+        }
+        showToast('此瀏覽器不支援直接呼叫系統分享，請直接「長按下方課表圖片」儲存！');
+      });
+
+      function openExportModal(title, pngDataUrl, downloadUrl, filename, shareFile) {
+        lastRenderedPngDataUrl = pngDataUrl;
+        document.getElementById('export-modal-title').textContent = title;
+        exportPreviewImg.src = pngDataUrl;
+        btnModalDirectDl.href = downloadUrl;
+        btnModalDirectDl.download = filename;
+        currentShareFile = shareFile;
+
+        modalExportPreview.classList.remove('hidden');
+        modalExportPreview.classList.add('flex');
+      }
+
+      document.getElementById('btn-export-png').addEventListener('click', async () => {
+        try {
+          const canvas = await capturePaperCanvas();
+          const pngDataUrl = canvas.toDataURL('image/png');
+          const safeTitle = (state.meta.titleZh || '雙語功課表').replace(/\s+/g, '_');
+          const filename = `${safeTitle}.png`;
+
+          const blob = dataUrlToBlob(pngDataUrl);
+          const blobUrl = URL.createObjectURL(blob);
+          let shareFile = null;
+          try {
+            shareFile = new File([blob], filename, { type: 'image/png' });
+          } catch (e) {}
+
+          // Open preview modal immediately so mobile users always see the generated image right away
+          openExportModal('課表圖片已產生！長按下方圖片即可儲存', pngDataUrl, pngDataUrl, filename, shareFile);
+
+          // Also trigger download link for desktop browsers
+          const link = document.createElement('a');
+          link.download = filename;
+          link.href = blobUrl;
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+        } catch (err) {
+          showToast('圖片產生失敗：' + (err && err.message ? err.message : '未知錯誤'));
+        }
+      });
+
+      document.getElementById('btn-export-pdf').addEventListener('click', async () => {
+        try {
+          const canvas = await capturePaperCanvas();
+          const pngDataUrl = canvas.toDataURL('image/png');
+          const jpegDataUrl = canvas.toDataURL('image/jpeg', 0.95);
+          const pdfBlob = buildPdfBlobFromJpegDataUrl(jpegDataUrl, canvas.width, canvas.height);
+
+          const safeTitle = (state.meta.titleZh || '雙語功課表').replace(/\s+/g, '_');
+          const filename = `${safeTitle}.pdf`;
+          const pdfBlobUrl = URL.createObjectURL(pdfBlob);
+          let shareFile = null;
+          try {
+            shareFile = new File([pdfBlob], filename, { type: 'application/pdf' });
+          } catch (e) {}
+
+          // Open preview modal immediately
+          openExportModal('A4 PDF 與課表圖片已產生！', pngDataUrl, pdfBlobUrl, filename, shareFile);
+
+          // Also trigger download link for desktop browsers
+          const link = document.createElement('a');
+          link.download = filename;
+          link.href = pdfBlobUrl;
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+        } catch (err) {
+          showToast('PDF 產生失敗：' + (err && err.message ? err.message : '請長按圖片儲存'));
+        }
+      });
+
+      // Print A4
+      document.getElementById('btn-print').addEventListener('click', () => {
+        window.print();
+      });
+
+      // JSON Config Save / Load Modal
+      const modalConfig = document.getElementById('modal-config');
+      document.getElementById('btn-open-config').addEventListener('click', () => {
+        modalConfig.classList.remove('hidden');
+        modalConfig.classList.add('flex');
+      });
+      document.getElementById('btn-close-config-modal').addEventListener('click', () => {
+        modalConfig.classList.add('hidden');
+        modalConfig.classList.remove('flex');
+      });
+
+      document.getElementById('btn-download-json').addEventListener('click', () => {
+        const dataStr = JSON.stringify(state, null, 2);
+        const blob = new Blob([dataStr], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        const safeTitle = (state.meta.titleZh || '雙語功課表').replace(/\s+/g, '_');
+        a.href = url;
+        a.download = `${safeTitle}_設定檔.json`;
+        a.click();
+        URL.revokeObjectURL(url);
+        modalConfig.classList.add('hidden');
+        modalConfig.classList.remove('flex');
+        showToast('已下載課表設定檔 (.json)');
+      });
+
+      document.getElementById('input-upload-json').addEventListener('change', (e) => {
+        const file = e.target.files && e.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+          try {
+            const parsed = JSON.parse(ev.target.result);
+            if (parsed && parsed.meta && Array.isArray(parsed.subjects) && parsed.grid) {
+              state = parsed;
+              saveState();
+              renderMeta();
+              renderSubjectBar();
+              renderGrid();
+              modalConfig.classList.add('hidden');
+              modalConfig.classList.remove('flex');
+              showToast('成功載入課表設定檔！');
+            } else {
+              showToast('設定檔格式不正確');
+            }
+          } catch (err) {
+            showToast('無法解析設定檔');
+          }
+        };
+        reader.readAsText(file);
+        e.target.value = '';
+      });
+
+      // Initialize App
+      loadState();
+      renderMeta();
+      renderSubjectBar();
+      renderGrid();
+    })();
+  </script>
+</body>
+</html>
